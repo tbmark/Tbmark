@@ -278,6 +278,10 @@ function SearchScreen({ onOpenSalon }) {
   const [salons, setSalons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [location, setLocation] = useState(null); // { city, neighborhood } | null
+  const [editingLocation, setEditingLocation] = useState(false);
+  const [cityInput, setCityInput] = useState("");
+  const [neighborhoodInput, setNeighborhoodInput] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -292,7 +296,8 @@ function SearchScreen({ onOpenSalon }) {
 
       if (!active) return;
       if (error) {
-        setErrorMsg("Não foi possível carregar os salões agora.");
+        console.error("Erro ao buscar salões:", error);
+        setErrorMsg(error.message || "Não foi possível carregar os salões agora.");
         setSalons([]);
       } else {
         setSalons(data || []);
@@ -305,15 +310,65 @@ function SearchScreen({ onOpenSalon }) {
     };
   }, []);
 
+  function saveLocation(e) {
+    e.preventDefault();
+    if (cityInput.trim()) {
+      setLocation({ city: cityInput.trim(), neighborhood: neighborhoodInput.trim() });
+    }
+    setEditingLocation(false);
+  }
+
+  const locationLabel = location
+    ? [location.neighborhood, location.city].filter(Boolean).join(", ")
+    : "Escolher localização";
+
   return (
     <div className="flex-1 overflow-y-auto pb-10">
       <div className="max-w-2xl mx-auto px-6 pt-6 pb-2 text-center">
-        <div className="flex items-center justify-center gap-1.5 text-[#8A6F72] font-body text-[12.5px] mb-2">
-          <MapPin size={13} />
-          <span>Batel, Curitiba — usando sua localização</span>
+        <div className="relative inline-block mb-2">
+          <button
+            onClick={() => {
+              setCityInput(location?.city || "");
+              setNeighborhoodInput(location?.neighborhood || "");
+              setEditingLocation((v) => !v);
+            }}
+            className="flex items-center gap-1.5 text-[#6B2737] font-body font-semibold text-[12.5px]"
+          >
+            <MapPin size={13} />
+            <span>{locationLabel}</span>
+          </button>
+
+          {editingLocation && (
+            <form
+              onSubmit={saveLocation}
+              className="absolute z-20 top-full mt-2 left-1/2 -translate-x-1/2 bg-white rounded-2xl shadow-lg p-3 w-64 flex flex-col gap-2"
+            >
+              <input
+                autoFocus
+                type="text"
+                placeholder="Cidade"
+                value={cityInput}
+                onChange={(e) => setCityInput(e.target.value)}
+                className="bg-[#FAF5F1] rounded-xl px-3 py-2 font-body text-[13px] text-[#2B1A1F] outline-none placeholder:text-[#B49A96]"
+              />
+              <input
+                type="text"
+                placeholder="Bairro (opcional)"
+                value={neighborhoodInput}
+                onChange={(e) => setNeighborhoodInput(e.target.value)}
+                className="bg-[#FAF5F1] rounded-xl px-3 py-2 font-body text-[13px] text-[#2B1A1F] outline-none placeholder:text-[#B49A96]"
+              />
+              <button
+                type="submit"
+                className="bg-[#6B2737] text-white rounded-xl py-2 font-body font-semibold text-[12.5px] mt-1"
+              >
+                Salvar
+              </button>
+            </form>
+          )}
         </div>
         <h1 className="font-display font-semibold text-[30px] sm:text-[38px] text-[#2B1A1F] leading-tight">
-          Boa tarde, Bianca ✨
+          Encontre seu próximo salão ✨
         </h1>
         <p className="font-body text-[14px] text-[#8A6F72] mt-1.5">
           Encontre e agende no seu próximo salão de beleza
