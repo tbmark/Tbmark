@@ -1168,6 +1168,195 @@ function OwnerStatusScreen({ salon }) {
         <p className="font-body font-bold text-[14px] text-[#2B1A1F]">{salon.name}</p>
         <p className="font-body text-[12px] text-[#8A6F72] mt-0.5">{salon.address}</p>
       </div>
+
+      <div className="mt-10 text-left">
+        <ServicesManager salonId={salon.id} />
+      </div>
+    </div>
+  );
+}
+
+function ServicesManager({ salonId }) {
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [duration, setDuration] = useState("30");
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
+
+  async function fetchServices() {
+    setLoading(true);
+    const { data } = await supabase
+      .from("services")
+      .select("id, name, price, duration_minutes, active")
+      .eq("salon_id", salonId)
+      .order("created_at", { ascending: false });
+    setServices(data || []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchServices();
+  }, [salonId]);
+
+  function resetForm() {
+    setName("");
+    setPrice("");
+    setDuration("30");
+    setEditingId(null);
+    setShowForm(false);
+    setErrorMsg(null);
+  }
+
+  function startEdit(s) {
+    setEditingId(s.id);
+    setName(s.name);
+    setPrice(String(s.price));
+    setDuration(String(s.duration_minutes));
+    setShowForm(true);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setErrorMsg(null);
+    const priceNum = parseFloat(price.replace(",", "."));
+    const durationNum = parseInt(duration, 10);
+
+    if (!name.trim() || isNaN(priceNum) || priceNum <= 0 || isNaN(durationNum) || durationNum <= 0) {
+      setErrorMsg("Preencha nome, valor e duração corretamente.");
+      return;
+    }
+
+    setSaving(true);
+
+    if (editingId) {
+      const { error } = await supabase
+        .from("services")
+        .update({ name: name.trim(), price: priceNum, duration_minutes: durationNum })
+        .eq("id", editingId);
+      if (error) setErrorMsg(error.message);
+    } else {
+      const { error } = await supabase
+        .from("services")
+        .insert({ salon_id: salonId, name: name.trim(), price: priceNum, duration_minutes: durationNum });
+      if (error) setErrorMsg(error.message);
+    }
+
+    setSaving(false);
+    if (!errorMsg) {
+      resetForm();
+      fetchServices();
+    }
+  }
+
+  async function toggleActive(s) {
+    await supabase.from("services").update({ active: !s.active }).eq("id", s.id);
+    fetchServices();
+  }
+
+  async function removeService(id) {
+    if (!window.confirm("Remover este serviço?")) return;
+    await supabase.from("services").delete().eq("id", id);
+    fetchServices();
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-display font-semibold text-[17px] text-[#2B1A1F]">Serviços</h2>
+        {!showForm && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="bg-[#6B2737] text-white rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px]"
+          >
+            + Novo serviço
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-4 shadow-sm flex flex-col gap-2.5 mb-4">
+          <input
+            required
+            placeholder="Nome do serviço (ex: Escova Modelada)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+          />
+          <div className="flex gap-2.5">
+            <input
+              required
+              placeholder="Valor (R$)"
+              inputMode="decimal"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              className="flex-1 bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+            />
+            <input
+              required
+              placeholder="Duração (min)"
+              inputMode="numeric"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              className="flex-1 bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+            />
+          </div>
+          {errorMsg && (
+            <p className="font-body text-[11.5px] text-[#B23A3A] bg-[#FBEAEA] rounded-lg px-3 py-1.5">{errorMsg}</p>
+          )}
+          <div className="flex gap-2 mt-1">
+            <button
+              type="button"
+              onClick={resetForm}
+              className="flex-1 bg-[#FAF5F1] text-[#8A6F72] rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
+            >
+              Cancelar
+            </button>
+            <button
+              disabled={saving}
+              className="flex-1 bg-[#6B2737] text-white rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
+            >
+              {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Adicionar"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {loading && (
+        <div className="flex items-center gap-2 text-[#8A6F72] py-4">
+          <Loader2 size={16} className="animate-spin" />
+          <span className="font-body text-[13px]">Carregando...</span>
+        </div>
+      )}
+
+      {!loading && services.length === 0 && !showForm && (
+        <p className="font-body text-[13px] text-[#8A6F72]">Nenhum serviço cadastrado ainda.</p>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {services.map((s) => (
+          <div key={s.id} className={`bg-white rounded-2xl p-3.5 shadow-sm flex items-center gap-3 ${!s.active ? "opacity-50" : ""}`}>
+            <div className="flex-1 min-w-0">
+              <p className="font-body font-bold text-[13.5px] text-[#2B1A1F] truncate">{s.name}</p>
+              <p className="font-body text-[12px] text-[#8A6F72]">
+                {fmt(s.price)} · {s.duration_minutes} min {!s.active && "· Inativo"}
+              </p>
+            </div>
+            <button onClick={() => startEdit(s)} className="font-body font-semibold text-[11.5px] text-[#6B2737] shrink-0">
+              Editar
+            </button>
+            <button onClick={() => toggleActive(s)} className="font-body font-semibold text-[11.5px] text-[#8A6F72] shrink-0">
+              {s.active ? "Desativar" : "Ativar"}
+            </button>
+            <button onClick={() => removeService(s.id)} className="font-body font-semibold text-[11.5px] text-[#B23A3A] shrink-0">
+              Remover
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
