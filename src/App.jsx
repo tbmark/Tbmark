@@ -1,35 +1,15 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Search, MapPin, Star, ChevronLeft, Check, Clock,
   Home, Heart, User, Calendar, CreditCard, Sparkles,
-  ChevronRight, Wallet, Smartphone
+  ChevronRight, Wallet, Smartphone, Loader2
 } from "lucide-react";
+import { supabase } from "./lib/supabase";
 
 /* ---------------------------------------------------------
-   MOCK DATA
+   MOCK DATA — datas e horários ainda são fixos até a lógica
+   de disponibilidade real ser construída (próxima etapa)
 --------------------------------------------------------- */
-
-const SALON = {
-  name: "Espaço Aurora",
-  rating: 4.9,
-  reviews: 238,
-  address: "Rua das Flores, 210 — Batel, Curitiba",
-  distance: "0,8 km",
-};
-
-const PROFESSIONALS = [
-  { id: 1, name: "Marina Duarte", role: "Cabelo", initials: "MD", color: "#6B2737", slotsToday: 3 },
-  { id: 2, name: "Camila Ferreira", role: "Unhas", initials: "CF", color: "#8B3A4E", slotsToday: 0 },
-  { id: 3, name: "Juliana Prado", role: "Sobrancelha & Cílios", initials: "JP", color: "#A2555E", slotsToday: 5 },
-];
-
-const SERVICES = [
-  { id: 1, profId: 1, name: "Escova Modelada", price: 150, duration: 60 },
-  { id: 2, profId: 1, name: "Corte Feminino", price: 120, duration: 45 },
-  { id: 3, profId: 1, name: "Hidratação Profunda", price: 90, duration: 40 },
-  { id: 4, profId: 3, name: "Design de Sobrancelha", price: 60, duration: 30 },
-  { id: 5, profId: 3, name: "Extensão de Cílios", price: 180, duration: 90 },
-];
 
 const DATES = [
   { label: "Hoje", sub: "13 Ago" },
@@ -42,6 +22,9 @@ const DATES = [
 const TIMES = ["09:00", "10:30", "11:15", "13:00", "14:30", "16:00", "17:30"];
 
 const fmt = (n) => `R$ ${n.toFixed(2).replace(".", ",")}`;
+const initialsOf = (name) => name.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+const AVATAR_COLORS = ["#6B2737", "#8B3A4E", "#A2555E", "#B4696F"];
+
 
 /* ---------------------------------------------------------
    SHARED UI BITS
@@ -106,11 +89,222 @@ function StepDots({ step }) {
 }
 
 /* ---------------------------------------------------------
+   SCREEN: AUTH (login / cadastro do cliente)
+--------------------------------------------------------- */
+
+function AuthScreen({ onAuthenticated }) {
+  const [mode, setMode] = useState("login"); // login | signup | check-email
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
+
+  async function handleSignup(e) {
+    e.preventDefault();
+    setErrorMsg(null);
+    setLoading(true);
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { name, phone, birth_date: birthDate } },
+    });
+
+    if (error) {
+      setErrorMsg(error.message === "User already registered" ? "Esse email já está cadastrado." : "Não foi possível cadastrar agora. Tente novamente.");
+      setLoading(false);
+      return;
+    }
+
+    // Cria o registro correspondente na tabela clients
+    if (data.user) {
+      await supabase.from("clients").insert({
+        user_id: data.user.id,
+        name,
+        phone,
+        email,
+        birth_date: birthDate || null,
+      });
+    }
+
+    setLoading(false);
+    setMode("check-email");
+  }
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    setErrorMsg(null);
+    setLoading(true);
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      setErrorMsg("Email ou senha incorretos.");
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
+    onAuthenticated();
+  }
+
+  if (mode === "check-email") {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center bg-[#FAF5F1] px-8 text-center">
+        <div className="w-16 h-16 rounded-full bg-[#EEF3E9] flex items-center justify-center mb-5">
+          <Check size={28} color="#5C7A4C" strokeWidth={3} />
+        </div>
+        <h1 className="font-display font-semibold text-[20px] text-[#2B1A1F]">Confirme seu email</h1>
+        <p className="font-body text-[13px] text-[#8A6F72] mt-2">
+          Enviamos um link de confirmação para <span className="font-semibold text-[#2B1A1F]">{email}</span>.
+          Depois de confirmar, você já pode entrar normalmente.
+        </p>
+        <div className="w-full mt-6">
+          <PrimaryButton onClick={() => setMode("login")}>Ir para o login</PrimaryButton>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-[#FAF5F1] pb-8">
+      <div className="px-6 pt-10 pb-6 text-center">
+        <h1 className="font-display font-semibold text-[26px] text-[#2B1A1F]">TBMark</h1>
+        <p className="font-body text-[13px] text-[#8A6F72] mt-1">
+          {mode === "login" ? "Entre para agendar seu próximo horário" : "Crie sua conta para começar a agendar"}
+        </p>
+      </div>
+
+      <form onSubmit={mode === "login" ? handleLogin : handleSignup} className="px-6 flex flex-col gap-3">
+        {mode === "signup" && (
+          <>
+            <input
+              type="text"
+              required
+              placeholder="Nome completo"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="bg-white rounded-2xl px-4 py-3 font-body text-[14px] text-[#2B1A1F] outline-none shadow-sm placeholder:text-[#B49A96]"
+            />
+            <input
+              type="tel"
+              required
+              placeholder="Telefone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="bg-white rounded-2xl px-4 py-3 font-body text-[14px] text-[#2B1A1F] outline-none shadow-sm placeholder:text-[#B49A96]"
+            />
+            <div>
+              <label className="font-body text-[11.5px] text-[#8A6F72] ml-1">Data de nascimento</label>
+              <input
+                type="date"
+                required
+                value={birthDate}
+                onChange={(e) => setBirthDate(e.target.value)}
+                className="w-full bg-white rounded-2xl px-4 py-3 font-body text-[14px] text-[#2B1A1F] outline-none shadow-sm mt-1"
+              />
+            </div>
+          </>
+        )}
+
+        <input
+          type="email"
+          required
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="bg-white rounded-2xl px-4 py-3 font-body text-[14px] text-[#2B1A1F] outline-none shadow-sm placeholder:text-[#B49A96]"
+        />
+        <input
+          type="password"
+          required
+          minLength={6}
+          placeholder="Senha"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="bg-white rounded-2xl px-4 py-3 font-body text-[14px] text-[#2B1A1F] outline-none shadow-sm placeholder:text-[#B49A96]"
+        />
+
+        {errorMsg && (
+          <p className="font-body text-[12px] text-[#B23A3A] bg-[#FBEAEA] rounded-xl px-3 py-2">{errorMsg}</p>
+        )}
+
+        <div className="mt-2">
+          <PrimaryButton disabled={loading}>
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 size={16} className="animate-spin" /> Aguarde...
+              </span>
+            ) : mode === "login" ? (
+              "Entrar"
+            ) : (
+              "Criar conta"
+            )}
+          </PrimaryButton>
+        </div>
+      </form>
+
+      <p className="text-center font-body text-[12.5px] text-[#8A6F72] mt-5">
+        {mode === "login" ? (
+          <>
+            Ainda não tem conta?{" "}
+            <button onClick={() => setMode("signup")} className="text-[#6B2737] font-semibold">
+              Cadastre-se
+            </button>
+          </>
+        ) : (
+          <>
+            Já tem conta?{" "}
+            <button onClick={() => setMode("login")} className="text-[#6B2737] font-semibold">
+              Entrar
+            </button>
+          </>
+        )}
+      </p>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
    SCREEN: SEARCH / HOME
 --------------------------------------------------------- */
 
 function SearchScreen({ onOpenSalon }) {
-  const chips = ["Escova", "Unhas", "Sobrancelha", "Cílios", "Massagem"];
+  const chips = ["Todos", "Escova", "Unhas", "Sobrancelha", "Cílios", "Massagem"];
+  const [activeChip, setActiveChip] = useState("Todos");
+  const [salons, setSalons] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    async function fetchSalons() {
+      setLoading(true);
+      setErrorMsg(null);
+      const { data, error } = await supabase
+        .from("salons")
+        .select("id, name, address, photo_url, is_featured, services(name)")
+        .order("is_featured", { ascending: false })
+        .order("created_at", { ascending: false });
+
+      if (!active) return;
+      if (error) {
+        setErrorMsg("Não foi possível carregar os salões agora.");
+        setSalons([]);
+      } else {
+        setSalons(data || []);
+      }
+      setLoading(false);
+    }
+    fetchSalons();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <div className="flex-1 overflow-y-auto bg-[#FAF5F1] pb-4">
       <div className="px-5 pt-6 pb-2">
@@ -127,22 +321,33 @@ function SearchScreen({ onOpenSalon }) {
       <div className="px-5 mt-4">
         <div className="flex items-center gap-2 bg-white rounded-2xl px-4 py-3 shadow-sm">
           <Search size={17} color="#B49A96" />
-          <span className="font-body text-[14px] text-[#B49A96]">Buscar salão ou procedimento</span>
+          <input
+            type="text"
+            placeholder="Buscar salão ou procedimento"
+            className="flex-1 bg-transparent outline-none font-body text-[14px] text-[#2B1A1F] placeholder:text-[#B49A96]"
+          />
         </div>
       </div>
 
       <div className="flex gap-2 px-5 mt-4 overflow-x-auto no-scrollbar">
-        {chips.map((c, i) => (
-          <span
+        {chips.map((c) => (
+          <button
             key={c}
-            className={`shrink-0 font-body font-semibold text-[12.5px] px-3.5 py-2 rounded-full ${
-              i === 0 ? "bg-[#6B2737] text-white" : "bg-white text-[#6B2737] border border-[#EFE3DE]"
+            onClick={() => setActiveChip(c)}
+            className={`shrink-0 font-body font-semibold text-[12.5px] px-3.5 py-2 rounded-full transition-colors ${
+              activeChip === c ? "bg-[#6B2737] text-white" : "bg-white text-[#6B2737] border border-[#EFE3DE]"
             }`}
           >
             {c}
-          </span>
+          </button>
         ))}
       </div>
+
+      {activeChip !== "Todos" && (
+        <p className="px-5 mt-2 font-body text-[11.5px] text-[#8A6F72]">
+          Filtrando por: <span className="font-semibold text-[#6B2737]">{activeChip}</span>
+        </p>
+      )}
 
       <div className="px-5 mt-6 flex items-center justify-between">
         <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F]">Perto de você</h2>
@@ -150,42 +355,69 @@ function SearchScreen({ onOpenSalon }) {
       </div>
 
       <div className="px-5 mt-3 flex flex-col gap-3">
-        <button onClick={onOpenSalon} className="text-left">
-          <div className="bg-white rounded-2xl overflow-hidden shadow-sm active:scale-[0.99] transition-transform">
-            <div className="h-28 relative bg-gradient-to-br from-[#6B2737] to-[#A2555E]">
-              <span className="absolute top-2.5 left-2.5 bg-[#C9A227] text-white text-[10px] font-body font-bold px-2 py-1 rounded-full flex items-center gap-1">
-                <Sparkles size={10} /> Destaque
-              </span>
-            </div>
-            <div className="p-3.5">
-              <div className="flex items-center justify-between">
-                <h3 className="font-display font-semibold text-[15px] text-[#2B1A1F]">{SALON.name}</h3>
-                <div className="flex items-center gap-1">
-                  <Star size={13} fill="#C9A227" color="#C9A227" />
-                  <span className="font-body font-bold text-[12.5px] text-[#2B1A1F]">{SALON.rating}</span>
-                </div>
-              </div>
-              <p className="font-body text-[12px] text-[#8A6F72] mt-0.5">
-                {SALON.address} · {SALON.distance}
-              </p>
-              <div className="flex gap-1.5 mt-2">
-                {["Cabelo", "Sobrancelha", "Cílios"].map((t) => (
-                  <span key={t} className="text-[10.5px] font-body font-semibold px-2 py-0.5 rounded-full bg-[#FAF5F1] text-[#6B2737]">
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </div>
+        {loading && (
+          <div className="flex items-center justify-center gap-2 py-12 text-[#8A6F72]">
+            <Loader2 size={18} className="animate-spin" />
+            <span className="font-body text-[13px]">Carregando salões...</span>
           </div>
-        </button>
+        )}
 
-        <div className="bg-white rounded-2xl overflow-hidden shadow-sm opacity-60">
-          <div className="h-28 bg-gradient-to-br from-[#8A6F72] to-[#B49A96]" />
-          <div className="p-3.5">
-            <h3 className="font-display font-semibold text-[15px] text-[#2B1A1F]">Studio Vitrine</h3>
-            <p className="font-body text-[12px] text-[#8A6F72] mt-0.5">Centro, Curitiba · 2,4 km</p>
+        {!loading && errorMsg && (
+          <p className="text-center font-body text-[13px] text-[#8A6F72] py-8">{errorMsg}</p>
+        )}
+
+        {!loading && !errorMsg && salons.length === 0 && (
+          <div className="bg-white rounded-2xl p-6 text-center">
+            <p className="font-body font-semibold text-[13.5px] text-[#2B1A1F]">
+              Nenhum salão cadastrado ainda
+            </p>
+            <p className="font-body text-[12px] text-[#8A6F72] mt-1">
+              Assim que uma dona de salão cadastrar o negócio dela, ele aparece aqui.
+            </p>
           </div>
-        </div>
+        )}
+
+        {!loading &&
+          salons.map((salon) => {
+            const tags = [...new Set((salon.services || []).map((s) => s.name))].slice(0, 3);
+            return (
+              <button key={salon.id} onClick={() => onOpenSalon(salon)} className="text-left">
+                <div className="bg-white rounded-2xl overflow-hidden shadow-sm active:scale-[0.99] transition-transform">
+                  <div
+                    className="h-28 relative bg-gradient-to-br from-[#6B2737] to-[#A2555E]"
+                    style={
+                      salon.photo_url
+                        ? { backgroundImage: `url(${salon.photo_url})`, backgroundSize: "cover", backgroundPosition: "center" }
+                        : undefined
+                    }
+                  >
+                    {salon.is_featured && (
+                      <span className="absolute top-2.5 left-2.5 bg-[#C9A227] text-white text-[10px] font-body font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                        <Sparkles size={10} /> Destaque
+                      </span>
+                    )}
+                  </div>
+                  <div className="p-3.5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-display font-semibold text-[15px] text-[#2B1A1F]">{salon.name}</h3>
+                    </div>
+                    {salon.address && (
+                      <p className="font-body text-[12px] text-[#8A6F72] mt-0.5">{salon.address}</p>
+                    )}
+                    {tags.length > 0 && (
+                      <div className="flex gap-1.5 mt-2 flex-wrap">
+                        {tags.map((t) => (
+                          <span key={t} className="text-[10.5px] font-body font-semibold px-2 py-0.5 rounded-full bg-[#FAF5F1] text-[#6B2737]">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
       </div>
     </div>
   );
@@ -195,10 +427,48 @@ function SearchScreen({ onOpenSalon }) {
    SCREEN: SALON PROFILE (choose professional)
 --------------------------------------------------------- */
 
-function SalonScreen({ onBack, onSelectProfessional }) {
+function SalonScreen({ salon, onBack, onSelectProfessional }) {
+  const [professionals, setProfessionals] = useState([]);
+  const [reviewStats, setReviewStats] = useState({ avg: null, count: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    async function fetchData() {
+      setLoading(true);
+      const [profRes, reviewRes] = await Promise.all([
+        supabase.from("professionals").select("id, name, role").eq("salon_id", salon.id).eq("active", true),
+        supabase.from("reviews").select("rating").eq("salon_id", salon.id),
+      ]);
+      if (!active) return;
+
+      setProfessionals(profRes.data || []);
+
+      const ratings = reviewRes.data || [];
+      if (ratings.length > 0) {
+        const avg = ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length;
+        setReviewStats({ avg: avg.toFixed(1), count: ratings.length });
+      } else {
+        setReviewStats({ avg: null, count: 0 });
+      }
+      setLoading(false);
+    }
+    fetchData();
+    return () => {
+      active = false;
+    };
+  }, [salon.id]);
+
   return (
     <div className="flex-1 overflow-y-auto bg-[#FAF5F1] pb-4">
-      <div className="h-40 relative bg-gradient-to-br from-[#6B2737] to-[#A2555E]">
+      <div
+        className="h-40 relative bg-gradient-to-br from-[#6B2737] to-[#A2555E]"
+        style={
+          salon.photo_url
+            ? { backgroundImage: `url(${salon.photo_url})`, backgroundSize: "cover", backgroundPosition: "center" }
+            : undefined
+        }
+      >
         <button
           onClick={onBack}
           className="absolute top-4 left-4 w-9 h-9 rounded-full bg-white/90 flex items-center justify-center"
@@ -209,52 +479,65 @@ function SalonScreen({ onBack, onSelectProfessional }) {
 
       <div className="px-5 -mt-6">
         <div className="bg-white rounded-2xl p-4 shadow-md">
-          <h1 className="font-display font-semibold text-[19px] text-[#2B1A1F]">{SALON.name}</h1>
+          <h1 className="font-display font-semibold text-[19px] text-[#2B1A1F]">{salon.name}</h1>
           <div className="flex items-center gap-1 mt-1">
-            <Star size={13} fill="#C9A227" color="#C9A227" />
-            <span className="font-body font-bold text-[12.5px] text-[#2B1A1F]">{SALON.rating}</span>
-            <span className="font-body text-[12px] text-[#8A6F72]">({SALON.reviews} avaliações)</span>
+            {reviewStats.avg ? (
+              <>
+                <Star size={13} fill="#C9A227" color="#C9A227" />
+                <span className="font-body font-bold text-[12.5px] text-[#2B1A1F]">{reviewStats.avg}</span>
+                <span className="font-body text-[12px] text-[#8A6F72]">({reviewStats.count} avaliações)</span>
+              </>
+            ) : (
+              <span className="font-body text-[12px] text-[#8A6F72]">Ainda sem avaliações</span>
+            )}
           </div>
-          <div className="flex items-center gap-1 mt-1.5 text-[#8A6F72]">
-            <MapPin size={12} />
-            <span className="font-body text-[12px]">{SALON.address}</span>
-          </div>
+          {salon.address && (
+            <div className="flex items-center gap-1 mt-1.5 text-[#8A6F72]">
+              <MapPin size={12} />
+              <span className="font-body text-[12px]">{salon.address}</span>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="px-5 mt-6">
         <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F]">Escolha quem vai te atender</h2>
         <p className="font-body text-[12.5px] text-[#8A6F72] mt-0.5">
-          Veja quem está disponível hoje ou escolha por especialidade
+          Profissionais desse salão
         </p>
       </div>
 
       <div className="px-5 mt-3 flex flex-col gap-2.5">
-        {PROFESSIONALS.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => p.slotsToday > 0 && onSelectProfessional(p)}
-            disabled={p.slotsToday === 0}
-            className={`bg-white rounded-2xl p-3.5 shadow-sm flex items-center gap-3 text-left ${
-              p.slotsToday === 0 ? "opacity-50" : "active:scale-[0.98] transition-transform"
-            }`}
-          >
-            <Avatar initials={p.initials} color={p.color} />
-            <div className="flex-1 min-w-0">
-              <h3 className="font-body font-bold text-[14px] text-[#2B1A1F] truncate">{p.name}</h3>
-              <p className="font-body text-[12px] text-[#8A6F72]">{p.role}</p>
-            </div>
-            {p.slotsToday > 0 ? (
-              <span className="flex items-center gap-1 text-[11px] font-body font-semibold text-[#5C7A4C] bg-[#EEF3E9] px-2.5 py-1 rounded-full shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#5C7A4C]" />
-                {p.slotsToday} hoje
-              </span>
-            ) : (
-              <span className="text-[11px] font-body font-semibold text-[#B49A96] shrink-0">Sem horário</span>
-            )}
-            {p.slotsToday > 0 && <ChevronRight size={16} color="#B49A96" className="shrink-0" />}
-          </button>
-        ))}
+        {loading && (
+          <div className="flex items-center justify-center gap-2 py-10 text-[#8A6F72]">
+            <Loader2 size={18} className="animate-spin" />
+            <span className="font-body text-[13px]">Carregando profissionais...</span>
+          </div>
+        )}
+
+        {!loading && professionals.length === 0 && (
+          <div className="bg-white rounded-2xl p-5 text-center">
+            <p className="font-body text-[13px] text-[#8A6F72]">
+              Esse salão ainda não cadastrou profissionais.
+            </p>
+          </div>
+        )}
+
+        {!loading &&
+          professionals.map((p, i) => (
+            <button
+              key={p.id}
+              onClick={() => onSelectProfessional(p)}
+              className="bg-white rounded-2xl p-3.5 shadow-sm flex items-center gap-3 text-left active:scale-[0.98] transition-transform"
+            >
+              <Avatar initials={initialsOf(p.name)} color={AVATAR_COLORS[i % AVATAR_COLORS.length]} />
+              <div className="flex-1 min-w-0">
+                <h3 className="font-body font-bold text-[14px] text-[#2B1A1F] truncate">{p.name}</h3>
+                {p.role && <p className="font-body text-[12px] text-[#8A6F72]">{p.role}</p>}
+              </div>
+              <ChevronRight size={16} color="#B49A96" className="shrink-0" />
+            </button>
+          ))}
       </div>
     </div>
   );
@@ -273,11 +556,30 @@ function BookingScreen({
   const [mensalista, setMensalista] = useState(false);
   const [paymentMode, setPaymentMode] = useState("sinal"); // sinal | total
   const [method, setMethod] = useState("pix");
+  const [servicesForProf, setServicesForProf] = useState([]);
+  const [loadingServices, setLoadingServices] = useState(true);
 
-  const servicesForProf = SERVICES.filter((s) => s.profId === professional.id);
+  useEffect(() => {
+    let active = true;
+    async function fetchServices() {
+      setLoadingServices(true);
+      const { data } = await supabase
+        .from("professional_services")
+        .select("services(id, name, price, duration_minutes)")
+        .eq("professional_id", professional.id);
+      if (!active) return;
+      setServicesForProf((data || []).map((row) => row.services).filter(Boolean));
+      setLoadingServices(false);
+    }
+    fetchServices();
+    return () => {
+      active = false;
+    };
+  }, [professional.id]);
+
   const total = useMemo(
-    () => selectedServices.reduce((sum, id) => sum + servicesForProf.find((s) => s.id === id).price, 0),
-    [selectedServices]
+    () => selectedServices.reduce((sum, id) => sum + (servicesForProf.find((s) => s.id === id)?.price || 0), 0),
+    [selectedServices, servicesForProf]
   );
   const sinal = total * 0.1;
 
@@ -292,7 +594,7 @@ function BookingScreen({
       <StepDots step={step + 1} />
 
       <div className="flex items-center gap-2.5 px-5 pb-4">
-        <Avatar initials={professional.initials} color={professional.color} size={36} />
+        <Avatar initials={initialsOf(professional.name)} color={AVATAR_COLORS[0]} size={36} />
         <div>
           <p className="font-body font-bold text-[13px] text-[#2B1A1F]">{professional.name}</p>
           <p className="font-body text-[11px] text-[#8A6F72]">{professional.role}</p>
@@ -302,7 +604,20 @@ function BookingScreen({
       {/* STEP 0: SERVICES */}
       {step === 0 && (
         <div className="px-5 flex flex-col gap-2.5">
-          {servicesForProf.map((s) => {
+          {loadingServices && (
+            <div className="flex items-center justify-center gap-2 py-10 text-[#8A6F72]">
+              <Loader2 size={18} className="animate-spin" />
+              <span className="font-body text-[13px]">Carregando serviços...</span>
+            </div>
+          )}
+          {!loadingServices && servicesForProf.length === 0 && (
+            <div className="bg-white rounded-2xl p-5 text-center">
+              <p className="font-body text-[13px] text-[#8A6F72]">
+                Essa profissional ainda não tem serviços cadastrados.
+              </p>
+            </div>
+          )}
+          {!loadingServices && servicesForProf.map((s) => {
             const active = selectedServices.includes(s.id);
             return (
               <button
@@ -321,7 +636,7 @@ function BookingScreen({
                 </div>
                 <div className="flex-1">
                   <p className="font-body font-bold text-[14px] text-[#2B1A1F]">{s.name}</p>
-                  <p className="font-body text-[11.5px] text-[#8A6F72]">{s.duration} min</p>
+                  <p className="font-body text-[11.5px] text-[#8A6F72]">{s.duration_minutes} min</p>
                 </div>
                 <p className="font-body font-bold text-[14px] text-[#6B2737]">{fmt(s.price)}</p>
               </button>
@@ -507,7 +822,7 @@ function BookingScreen({
    SCREEN: CONFIRMATION
 --------------------------------------------------------- */
 
-function ConfirmedScreen({ professional, date, time, onDone }) {
+function ConfirmedScreen({ salon, professional, date, time, onDone }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center bg-[#FAF5F1] px-8 text-center">
       <div className="w-16 h-16 rounded-full bg-[#5C7A4C] flex items-center justify-center mb-5 animate-[pop_0.4s_ease]">
@@ -520,10 +835,10 @@ function ConfirmedScreen({ professional, date, time, onDone }) {
 
       <div className="bg-white rounded-2xl p-4 mt-6 w-full shadow-sm text-left">
         <div className="flex items-center gap-2.5">
-          <Avatar initials={professional.initials} color={professional.color} size={38} />
+          <Avatar initials={initialsOf(professional.name)} color={AVATAR_COLORS[0]} size={38} />
           <div>
             <p className="font-body font-bold text-[13.5px] text-[#2B1A1F]">{professional.name}</p>
-            <p className="font-body text-[11.5px] text-[#8A6F72]">{SALON.name}</p>
+            <p className="font-body text-[11.5px] text-[#8A6F72]">{salon?.name}</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-[#EFE3DE] text-[#4A3538]">
@@ -548,15 +863,26 @@ function ConfirmedScreen({ professional, date, time, onDone }) {
 --------------------------------------------------------- */
 
 export default function AppBelezaPrototype() {
+  const [session, setSession] = useState(undefined); // undefined = checando, null = deslogado, objeto = logado
   const [screen, setScreen] = useState("search");
+  const [salon, setSalon] = useState(null);
   const [professional, setProfessional] = useState(null);
   const [selectedServices, setSelectedServices] = useState([]);
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
   const [step, setStep] = useState(0);
 
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
   const reset = () => {
     setScreen("search");
+    setSalon(null);
     setProfessional(null);
     setSelectedServices([]);
     setDate(null);
@@ -568,7 +894,7 @@ export default function AppBelezaPrototype() {
     setSelectedServices((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   return (
-    <div className="w-full min-h-[820px] flex items-center justify-center bg-[#E9DFDA] p-6">
+    <div className="w-full min-h-screen bg-[#E9DFDA] flex justify-center">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap');
         .font-display{font-family:'Fraunces',serif;}
@@ -578,17 +904,33 @@ export default function AppBelezaPrototype() {
         @keyframes pop{0%{transform:scale(0.6);opacity:0;}100%{transform:scale(1);opacity:1;}}
       `}</style>
 
-      {/* PHONE FRAME */}
-      <div className="w-[380px] h-[790px] bg-[#C9B8AA] rounded-[46px] p-[10px] shadow-2xl">
-        <div className="w-full h-full bg-[#FAF5F1] rounded-[36px] overflow-hidden flex flex-col relative">
-          {/* notch */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-[#C9B8AA] rounded-b-2xl z-20" />
+      {/* Ocupa a tela toda no celular; no computador fica centralizado numa coluna estreita, como um app real */}
+      <div className="w-full max-w-[480px] min-h-screen bg-[#FAF5F1] flex flex-col relative sm:shadow-2xl">
 
+        {session === undefined && (
+          <div className="flex-1 flex items-center justify-center gap-2 text-[#8A6F72]">
+            <Loader2 size={20} className="animate-spin" />
+            <span className="font-body text-[13px]">Carregando...</span>
+          </div>
+        )}
+
+        {session === null && <AuthScreen onAuthenticated={() => {}} />}
+
+        {session && (
+          <>
           <div className="flex-1 flex flex-col pt-6 overflow-hidden">
-            {screen === "search" && <SearchScreen onOpenSalon={() => setScreen("salon")} />}
+            {screen === "search" && (
+              <SearchScreen
+                onOpenSalon={(s) => {
+                  setSalon(s);
+                  setScreen("salon");
+                }}
+              />
+            )}
 
-            {screen === "salon" && (
+            {screen === "salon" && salon && (
               <SalonScreen
+                salon={salon}
                 onBack={() => setScreen("search")}
                 onSelectProfessional={(p) => {
                   setProfessional(p);
@@ -614,7 +956,7 @@ export default function AppBelezaPrototype() {
             )}
 
             {screen === "confirmed" && professional && (
-              <ConfirmedScreen professional={professional} date={date} time={time} onDone={reset} />
+              <ConfirmedScreen salon={salon} professional={professional} date={date} time={time} onDone={reset} />
             )}
           </div>
 
@@ -625,18 +967,19 @@ export default function AppBelezaPrototype() {
                 { icon: Home, label: "Início", active: true },
                 { icon: Search, label: "Buscar" },
                 { icon: Heart, label: "Favoritos" },
-                { icon: User, label: "Perfil" },
-              ].map(({ icon: Icon, label, active }) => (
-                <div key={label} className="flex flex-col items-center gap-0.5 flex-1">
+                { icon: User, label: "Perfil", onClick: () => supabase.auth.signOut() },
+              ].map(({ icon: Icon, label, active, onClick }) => (
+                <button key={label} onClick={onClick} className="flex flex-col items-center gap-0.5 flex-1">
                   <Icon size={19} color={active ? "#6B2737" : "#B49A96"} />
                   <span className={`font-body text-[10px] font-semibold ${active ? "text-[#6B2737]" : "text-[#B49A96]"}`}>
                     {label}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
