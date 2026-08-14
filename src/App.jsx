@@ -781,7 +781,7 @@ function BookingScreen({
     };
   }, [step, method, mensalista, chargeAmount]);
 
-  async function processPayment({ method: payMethod, card_token, installments, payer_email, payer_cpf }) {
+  async function processPayment({ method: payMethod, card_token, installments, payer_email, payer_cpf, isSubscriber }) {
     setProcessing(true);
     setPaymentError(null);
     try {
@@ -791,9 +791,9 @@ function BookingScreen({
           professional_id: professional.id,
           service_ids: selectedServices,
           scheduled_at: scheduledAtIso,
-          total_amount: total,
           pay_full: paymentMode === "total",
-          method: payMethod,
+          is_subscriber_booking: !!isSubscriber,
+          method: isSubscriber ? undefined : payMethod,
           card_token,
           installments,
           payer_email,
@@ -807,7 +807,7 @@ function BookingScreen({
         return;
       }
 
-      if (payMethod === "pix" && data.qr_code) {
+      if (!isSubscriber && payMethod === "pix" && data.qr_code) {
         setPixData({ qr_code: data.qr_code, qr_code_base64: data.qr_code_base64, appointmentId: data.appointment_id });
         setProcessing(false);
         return;
@@ -841,9 +841,9 @@ function BookingScreen({
 
   async function handleConfirm() {
     if (mensalista) {
-      // Mensalista com recorrência em dia: nenhuma cobrança agora.
-      // A checagem real de recorrência/mensalidade fica pra próxima etapa.
-      onConfirmed();
+      // O servidor confere de verdade se a mensalidade está ativa —
+      // se não estiver, ele recusa e mostra o erro na tela.
+      processPayment({ isSubscriber: true });
       return;
     }
     if (method === "pix") {
@@ -2194,12 +2194,11 @@ function AdminScreen() {
 
   async function approveWithdrawal(w) {
     if (!window.confirm(`Aprovar saque de ${fmt(w.requested_amount)}? Isso já debita o saldo do salão.`)) return;
-    // Debita o saldo do salão
-    const { data: salonRow } = await supabase.from("salons").select("id, balance").eq("id", w.salon_id).single();
-    if (salonRow) {
-      await supabase.from("salons").update({ balance: (salonRow.balance || 0) - w.requested_amount }).eq("id", salonRow.id);
+    const { error } = await supabase.rpc("approve_withdrawal", { p_withdrawal_id: w.id });
+    if (error) {
+      alert(error.message);
+      return;
     }
-    await supabase.from("withdrawal_requests").update({ status: "approved", reviewed_at: new Date().toISOString() }).eq("id", w.id);
     fetchData();
   }
 
