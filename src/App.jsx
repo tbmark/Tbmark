@@ -956,6 +956,7 @@ function OwnerRegistrationForm({ userId, onSubmitted }) {
   const [documentType, setDocumentType] = useState("cpf");
   const [documentNumber, setDocumentNumber] = useState("");
   const [photos, setPhotos] = useState([]);
+  const [logo, setLogo] = useState([]);
   const [documentFile, setDocumentFile] = useState([]);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -996,7 +997,18 @@ function OwnerRegistrationForm({ userId, onSubmitted }) {
       return;
     }
 
-    // 2. Sobe as fotos reais (público)
+    // 2. Sobe a logo (opcional, público)
+    if (logo.length > 0) {
+      const logoFile = logo[0];
+      const logoPath = `${salonRow.id}/logo-${Date.now()}-${logoFile.name}`;
+      const { error: logoUploadError } = await supabase.storage.from("salon-photos").upload(logoPath, logoFile);
+      if (!logoUploadError) {
+        const { data: pub } = supabase.storage.from("salon-photos").getPublicUrl(logoPath);
+        await supabase.from("salons").update({ logo_url: pub.publicUrl }).eq("id", salonRow.id);
+      }
+    }
+
+    // 3. Sobe as fotos reais (público)
     for (const file of photos) {
       const path = `${salonRow.id}/${Date.now()}-${file.name}`;
       const { error: uploadError } = await supabase.storage.from("salon-photos").upload(path, file);
@@ -1006,7 +1018,7 @@ function OwnerRegistrationForm({ userId, onSubmitted }) {
       }
     }
 
-    // 3. Sobe o documento (privado)
+    // 4. Sobe o documento (privado)
     const docFile = documentFile[0];
     const docPath = `${salonRow.id}/${Date.now()}-${docFile.name}`;
     const { error: docUploadError } = await supabase.storage.from("salon-documents").upload(docPath, docFile);
@@ -1077,6 +1089,13 @@ function OwnerRegistrationForm({ userId, onSubmitted }) {
         value={documentNumber}
         onChange={(e) => setDocumentNumber(e.target.value)}
         className="bg-white rounded-2xl px-4 py-3 font-body text-[14px] outline-none shadow-sm placeholder:text-[#B49A96]"
+      />
+
+      <FileDropInput
+        label="Logomarca do seu negócio (opcional)"
+        multiple={false}
+        files={logo}
+        onFiles={setLogo}
       />
 
       <FileDropInput
@@ -1375,6 +1394,30 @@ export default function AppBelezaPrototype() {
       .then(({ data }) => setIsAdmin(!!data));
   }, [session]);
 
+  const [displayName, setDisplayName] = useState(null);
+
+  useEffect(() => {
+    if (!session) {
+      setDisplayName(null);
+      return;
+    }
+    if (userType === "owner") {
+      supabase
+        .from("salons")
+        .select("name")
+        .eq("owner_id", session.user.id)
+        .maybeSingle()
+        .then(({ data }) => setDisplayName(data?.name || null));
+    } else {
+      supabase
+        .from("clients")
+        .select("name")
+        .eq("user_id", session.user.id)
+        .maybeSingle()
+        .then(({ data }) => setDisplayName(data?.name || null));
+    }
+  }, [session, userType]);
+
   const reset = () => {
     setScreen("search");
     setSalon(null);
@@ -1437,13 +1480,20 @@ export default function AppBelezaPrototype() {
               </button>
             </div>
 
-            <button
-              onClick={() => (session ? supabase.auth.signOut() : setScreen("auth"))}
-              className="flex items-center gap-1.5 font-body font-semibold text-[12.5px] text-[#6B2737] shrink-0"
-            >
-              <User size={15} />
-              {session ? "Sair" : "Entrar"}
-            </button>
+            <div className="flex items-center gap-3 shrink-0">
+              {session && displayName && (
+                <span className="font-body font-semibold text-[12.5px] text-[#2B1A1F] hidden sm:inline truncate max-w-[160px]">
+                  {displayName}
+                </span>
+              )}
+              <button
+                onClick={() => (session ? supabase.auth.signOut() : setScreen("auth"))}
+                className="flex items-center gap-1.5 font-body font-semibold text-[12.5px] text-[#6B2737]"
+              >
+                <User size={15} />
+                {session ? "Sair" : "Entrar"}
+              </button>
+            </div>
           </div>
         </div>
 
