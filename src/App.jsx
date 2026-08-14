@@ -2673,7 +2673,7 @@ export default function AppBelezaPrototype() {
                   userType === "client" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
                 }`}
               >
-                Sou cliente
+                Para Você
               </button>
               <button
                 onClick={() => {
@@ -2684,7 +2684,7 @@ export default function AppBelezaPrototype() {
                   userType === "owner" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
                 }`}
               >
-                Dona do comércio
+                Para Negócios
               </button>
               <button
                 onClick={() => {
@@ -2695,7 +2695,7 @@ export default function AppBelezaPrototype() {
                   userType === "employee" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
                 }`}
               >
-                Sou funcionária
+                Para Profissionais
               </button>
             </div>
 
