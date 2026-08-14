@@ -2150,9 +2150,14 @@ function BalanceAndWithdrawal({ salonId }) {
 }
 
 function AdminScreen() {
+  const [adminTab, setAdminTab] = useState("overview"); // overview | approvals | withdrawals
   const [pendingSalons, setPendingSalons] = useState([]);
   const [allSalons, setAllSalons] = useState([]);
   const [pendingWithdrawals, setPendingWithdrawals] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [recentAppointments, setRecentAppointments] = useState([]);
+  const [paidWithdrawalsTotal, setPaidWithdrawalsTotal] = useState(0);
+  const [totalTransacted, setTotalTransacted] = useState(0);
   const [loading, setLoading] = useState(true);
   const [docUrls, setDocUrls] = useState({});
 
@@ -2173,6 +2178,31 @@ function AdminScreen() {
       .order("created_at", { ascending: true });
 
     setPendingWithdrawals(withdrawals || []);
+
+    // Quem se cadastrou
+    const { data: clientsData } = await supabase
+      .from("clients")
+      .select("id, name, email, phone, created_at")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    setClients(clientsData || []);
+
+    // Quem está usando (agendamentos recentes)
+    const { data: appointmentsData } = await supabase
+      .from("appointments")
+      .select("id, scheduled_at, status, total_amount, created_at, clients(name), salons(name)")
+      .order("created_at", { ascending: false })
+      .limit(30);
+    setRecentAppointments(appointmentsData || []);
+
+    // Quanto já entrou de verdade (pagamentos confirmados)
+    const { data: paidPayments } = await supabase.from("payments").select("amount").eq("status", "paid");
+    setTotalTransacted((paidPayments || []).reduce((sum, p) => sum + Number(p.amount), 0));
+
+    // Quanto a plataforma já faturou de verdade (taxas de saques já pagos)
+    const { data: paidWithdrawals } = await supabase.from("withdrawal_requests").select("platform_fee").eq("status", "paid");
+    setPaidWithdrawalsTotal((paidWithdrawals || []).reduce((sum, w) => sum + Number(w.platform_fee), 0));
+
     setLoading(false);
   }
 
@@ -2233,40 +2263,113 @@ function AdminScreen() {
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
       <h1 className="font-display font-semibold text-[22px] text-[#2B1A1F]">Painel da plataforma</h1>
-      <p className="font-body text-[13px] text-[#8A6F72] mt-1">Visão geral de todos os salões cadastrados.</p>
+      <p className="font-body text-[13px] text-[#8A6F72] mt-1">Controle geral do TBMark.</p>
 
-      <div className="grid grid-cols-3 gap-3 mt-5">
-        <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
-          <p className="font-display font-semibold text-[22px] text-[#C9A227]">{pendingSalons.length}</p>
-          <p className="font-body text-[11.5px] text-[#8A6F72]">Pendentes</p>
-        </div>
-        <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
-          <p className="font-display font-semibold text-[22px] text-[#5C7A4C]">{approvedCount}</p>
-          <p className="font-body text-[11.5px] text-[#8A6F72]">Aprovados</p>
-        </div>
-        <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
-          <p className="font-display font-semibold text-[22px] text-[#B23A3A]">{rejectedCount}</p>
-          <p className="font-body text-[11.5px] text-[#8A6F72]">Rejeitados</p>
-        </div>
+      <div className="flex items-center gap-1 bg-white p-1 rounded-full shadow-sm mt-5 w-fit">
+        {[
+          { id: "overview", label: "Visão geral" },
+          { id: "approvals", label: `Aprovações${pendingSalons.length > 0 ? ` (${pendingSalons.length})` : ""}` },
+          { id: "withdrawals", label: `Saques${pendingWithdrawals.length > 0 ? ` (${pendingWithdrawals.length})` : ""}` },
+        ].map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setAdminTab(t.id)}
+            className={`rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px] transition-colors ${
+              adminTab === t.id ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      <div className="bg-[#FDF6E3] rounded-2xl p-3.5 mt-5 flex items-start gap-2">
-        <Sparkles size={15} color="#C9A227" className="shrink-0 mt-0.5" />
-        <p className="font-body text-[12px] text-[#8A6E1F]">
-          Faturamento por salão e da plataforma aparecerão aqui assim que os pagamentos reais estiverem
-          integrados (Mercado Pago) — próxima etapa do projeto.
-        </p>
-      </div>
+      {adminTab === "overview" && (
+        <div className="mt-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
+              <p className="font-display font-semibold text-[20px] text-[#2B1A1F]">{clients.length}</p>
+              <p className="font-body text-[11px] text-[#8A6F72]">Clientes cadastradas</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
+              <p className="font-display font-semibold text-[20px] text-[#5C7A4C]">{approvedCount}</p>
+              <p className="font-body text-[11px] text-[#8A6F72]">Salões aprovados</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
+              <p className="font-display font-semibold text-[20px] text-[#2B1A1F]">{recentAppointments.length}</p>
+              <p className="font-body text-[11px] text-[#8A6F72]">Agendamentos recentes</p>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
+              <p className="font-display font-semibold text-[20px] text-[#C9A227]">{pendingSalons.length}</p>
+              <p className="font-body text-[11px] text-[#8A6F72]">Aguardando você</p>
+            </div>
+          </div>
 
-      <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F] mt-7 mb-3">
-        Saques {pendingWithdrawals.length > 0 && `(${pendingWithdrawals.length})`}
-      </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+            <div className="bg-white rounded-2xl p-5 shadow-sm">
+              <p className="font-body text-[12px] text-[#8A6F72]">Total já transacionado na plataforma</p>
+              <p className="font-display font-semibold text-[24px] text-[#2B1A1F] mt-0.5">{fmt(totalTransacted)}</p>
+              <p className="font-body text-[11px] text-[#8A6F72] mt-1">Soma de todos os pagamentos confirmados</p>
+            </div>
+            <div className="bg-white rounded-2xl p-5 shadow-sm">
+              <p className="font-body text-[12px] text-[#8A6F72]">Sua receita já realizada</p>
+              <p className="font-display font-semibold text-[24px] text-[#6B2737] mt-0.5">{fmt(paidWithdrawalsTotal)}</p>
+              <p className="font-body text-[11px] text-[#8A6F72] mt-1">Taxa de 5% sobre saques já transferidos</p>
+            </div>
+          </div>
 
-      {!loading && pendingWithdrawals.length === 0 && (
-        <p className="font-body text-[13px] text-[#8A6F72] mb-2">Nenhum saque pendente no momento.</p>
+          <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F] mt-7 mb-3">Clientes cadastradas</h2>
+          {clients.length === 0 && <p className="font-body text-[13px] text-[#8A6F72]">Nenhuma cliente cadastrada ainda.</p>}
+          <div className="flex flex-col gap-2">
+            {clients.slice(0, 10).map((c) => (
+              <div key={c.id} className="bg-white rounded-2xl p-3.5 shadow-sm flex items-center justify-between">
+                <div>
+                  <p className="font-body font-bold text-[13px] text-[#2B1A1F]">{c.name}</p>
+                  <p className="font-body text-[11.5px] text-[#8A6F72]">{c.email} {c.phone && `· ${c.phone}`}</p>
+                </div>
+                <p className="font-body text-[11px] text-[#8A6F72]">
+                  {new Date(c.created_at).toLocaleDateString("pt-BR")}
+                </p>
+              </div>
+            ))}
+          </div>
+          {clients.length > 10 && (
+            <p className="font-body text-[11.5px] text-[#8A6F72] mt-2">+ {clients.length - 10} outras clientes cadastradas</p>
+          )}
+
+          <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F] mt-7 mb-3">Uso recente (quem está agendando)</h2>
+          {recentAppointments.length === 0 && (
+            <p className="font-body text-[13px] text-[#8A6F72]">Nenhum agendamento realizado ainda.</p>
+          )}
+          <div className="flex flex-col gap-2">
+            {recentAppointments.slice(0, 10).map((a) => (
+              <div key={a.id} className="bg-white rounded-2xl p-3.5 shadow-sm flex items-center justify-between">
+                <div>
+                  <p className="font-body font-bold text-[13px] text-[#2B1A1F]">{a.clients?.name}</p>
+                  <p className="font-body text-[11.5px] text-[#8A6F72]">{a.salons?.name} · {a.status}</p>
+                </div>
+                <p className="font-body font-bold text-[12.5px] text-[#6B2737]">{fmt(a.total_amount)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
-      <div className="flex flex-col gap-3 mb-2">
+      {adminTab === "approvals" && (
+        <div className="mt-6">
+      <div className="bg-[#FDF6E3] rounded-2xl p-3.5 flex items-start gap-2">
+        <Sparkles size={15} color="#C9A227" className="shrink-0 mt-0.5" />
+        <p className="font-body text-[12px] text-[#8A6E1F]">
+          Aprove ou rejeite os salões novos abaixo. Confira sempre as fotos e o documento antes de aprovar.
+        </p>
+      </div>
+        </div>
+      )}
+
+      {adminTab === "withdrawals" && (
+        <div className="mt-6 flex flex-col gap-3">
+        {!loading && pendingWithdrawals.length === 0 && (
+          <p className="font-body text-[13px] text-[#8A6F72]">Nenhum saque pendente no momento.</p>
+        )}
         {pendingWithdrawals.map((w) => (
           <div key={w.id} className="bg-white rounded-2xl p-4 shadow-sm">
             <div className="flex items-start justify-between">
@@ -2326,9 +2429,12 @@ function AdminScreen() {
             )}
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
-      <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F] mt-7 mb-3">
+      {adminTab === "approvals" && (
+        <div className="mt-2">
+      <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F] mb-3">
         Aguardando aprovação {pendingSalons.length > 0 && `(${pendingSalons.length})`}
       </h2>
 
@@ -2391,6 +2497,8 @@ function AdminScreen() {
           </div>
         ))}
       </div>
+        </div>
+      )}
     </div>
   );
 }
