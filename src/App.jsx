@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import {
   Search, MapPin, Star, ChevronLeft, Check, Clock,
   Home, Heart, User, Calendar, CreditCard, Sparkles,
-  ChevronRight, Wallet, Smartphone, Loader2
+  ChevronRight, Wallet, Smartphone, Loader2, Eye, EyeOff
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 
@@ -99,6 +99,7 @@ function AuthScreen({ onAuthenticated }) {
   const [email, setEmail] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -218,15 +219,24 @@ function AuthScreen({ onAuthenticated }) {
           onChange={(e) => setEmail(e.target.value)}
           className="bg-white rounded-2xl px-4 py-3 font-body text-[14px] text-[#2B1A1F] outline-none shadow-sm placeholder:text-[#B49A96]"
         />
-        <input
-          type="password"
-          required
-          minLength={6}
-          placeholder="Senha"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="bg-white rounded-2xl px-4 py-3 font-body text-[14px] text-[#2B1A1F] outline-none shadow-sm placeholder:text-[#B49A96]"
-        />
+        <div className="relative">
+          <input
+            type={showPassword ? "text" : "password"}
+            required
+            minLength={6}
+            placeholder="Senha"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full bg-white rounded-2xl px-4 py-3 pr-11 font-body text-[14px] text-[#2B1A1F] outline-none shadow-sm placeholder:text-[#B49A96]"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#B49A96]"
+          >
+            {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+          </button>
+        </div>
 
         {errorMsg && (
           <p className="font-body text-[12px] text-[#B23A3A] bg-[#FBEAEA] rounded-xl px-3 py-2">{errorMsg}</p>
@@ -916,11 +926,425 @@ function ConfirmedScreen({ salon, professional, date, time, onDone }) {
 }
 
 /* ---------------------------------------------------------
+   SCREEN: OWNER — cadastro do salão / status / painel
+--------------------------------------------------------- */
+
+function FileDropInput({ label, multiple, onFiles, files }) {
+  return (
+    <div>
+      <label className="font-body text-[12px] font-semibold text-[#2B1A1F] block mb-1.5">{label}</label>
+      <label className="flex flex-col items-center justify-center gap-1.5 border-2 border-dashed border-[#EFE3DE] rounded-2xl py-6 cursor-pointer bg-white">
+        <span className="font-body text-[12.5px] text-[#8A6F72]">
+          {files.length > 0 ? `${files.length} arquivo(s) selecionado(s)` : "Toque para escolher"}
+        </span>
+        <input
+          type="file"
+          accept="image/*"
+          multiple={multiple}
+          className="hidden"
+          onChange={(e) => onFiles(Array.from(e.target.files || []))}
+        />
+      </label>
+    </div>
+  );
+}
+
+function OwnerRegistrationForm({ userId, onSubmitted }) {
+  const [name, setName] = useState("");
+  const [ownerFullName, setOwnerFullName] = useState("");
+  const [address, setAddress] = useState("");
+  const [documentType, setDocumentType] = useState("cpf");
+  const [documentNumber, setDocumentNumber] = useState("");
+  const [photos, setPhotos] = useState([]);
+  const [documentFile, setDocumentFile] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setErrorMsg(null);
+
+    if (photos.length === 0) {
+      setErrorMsg("Envie ao menos uma foto real do local.");
+      return;
+    }
+    if (documentFile.length === 0) {
+      setErrorMsg("Envie uma foto ou digitalização do documento.");
+      return;
+    }
+
+    setLoading(true);
+
+    // 1. Cria o salão como pendente
+    const { data: salonRow, error: salonError } = await supabase
+      .from("salons")
+      .insert({
+        owner_id: userId,
+        name,
+        address,
+        owner_full_name: ownerFullName,
+        document_type: documentType,
+        document_number: documentNumber,
+        verification_status: "pending",
+      })
+      .select()
+      .single();
+
+    if (salonError) {
+      setErrorMsg(salonError.message);
+      setLoading(false);
+      return;
+    }
+
+    // 2. Sobe as fotos reais (público)
+    for (const file of photos) {
+      const path = `${salonRow.id}/${Date.now()}-${file.name}`;
+      const { error: uploadError } = await supabase.storage.from("salon-photos").upload(path, file);
+      if (!uploadError) {
+        const { data: pub } = supabase.storage.from("salon-photos").getPublicUrl(path);
+        await supabase.from("salon_photos").insert({ salon_id: salonRow.id, photo_url: pub.publicUrl });
+      }
+    }
+
+    // 3. Sobe o documento (privado)
+    const docFile = documentFile[0];
+    const docPath = `${salonRow.id}/${Date.now()}-${docFile.name}`;
+    const { error: docUploadError } = await supabase.storage.from("salon-documents").upload(docPath, docFile);
+    if (!docUploadError) {
+      await supabase.from("salon_documents").insert({ salon_id: salonRow.id, document_url: docPath });
+    }
+
+    setLoading(false);
+    onSubmitted();
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="max-w-xl mx-auto px-6 py-8 flex flex-col gap-3.5">
+      <div>
+        <h1 className="font-display font-semibold text-[22px] text-[#2B1A1F]">Cadastre seu salão</h1>
+        <p className="font-body text-[13px] text-[#8A6F72] mt-1">
+          Para a segurança de todo mundo, revisamos manualmente cada cadastro antes de publicar. Isso pode levar
+          um tempo — enquanto isso, seu salão não aparece na busca.
+        </p>
+      </div>
+
+      <input
+        required
+        placeholder="Nome do estúdio/salão"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="bg-white rounded-2xl px-4 py-3 font-body text-[14px] outline-none shadow-sm placeholder:text-[#B49A96]"
+      />
+      <input
+        required
+        placeholder="Seu nome completo (responsável)"
+        value={ownerFullName}
+        onChange={(e) => setOwnerFullName(e.target.value)}
+        className="bg-white rounded-2xl px-4 py-3 font-body text-[14px] outline-none shadow-sm placeholder:text-[#B49A96]"
+      />
+      <input
+        required
+        placeholder="Endereço completo do local"
+        value={address}
+        onChange={(e) => setAddress(e.target.value)}
+        className="bg-white rounded-2xl px-4 py-3 font-body text-[14px] outline-none shadow-sm placeholder:text-[#B49A96]"
+      />
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setDocumentType("cpf")}
+          className={`flex-1 rounded-2xl py-2.5 font-body font-semibold text-[13px] ${
+            documentType === "cpf" ? "bg-[#6B2737] text-white" : "bg-white text-[#8A6F72] shadow-sm"
+          }`}
+        >
+          Pessoa física (CPF)
+        </button>
+        <button
+          type="button"
+          onClick={() => setDocumentType("cnpj")}
+          className={`flex-1 rounded-2xl py-2.5 font-body font-semibold text-[13px] ${
+            documentType === "cnpj" ? "bg-[#6B2737] text-white" : "bg-white text-[#8A6F72] shadow-sm"
+          }`}
+        >
+          Pessoa jurídica (CNPJ)
+        </button>
+      </div>
+
+      <input
+        required
+        placeholder={documentType === "cpf" ? "Número do CPF" : "Número do CNPJ"}
+        value={documentNumber}
+        onChange={(e) => setDocumentNumber(e.target.value)}
+        className="bg-white rounded-2xl px-4 py-3 font-body text-[14px] outline-none shadow-sm placeholder:text-[#B49A96]"
+      />
+
+      <FileDropInput
+        label={`Foto ou digitalização do ${documentType === "cpf" ? "CPF" : "CNPJ"} (só o admin vê)`}
+        multiple={false}
+        files={documentFile}
+        onFiles={setDocumentFile}
+      />
+
+      <FileDropInput
+        label="Fotos reais do local (públicas, aparecem na busca)"
+        multiple={true}
+        files={photos}
+        onFiles={setPhotos}
+      />
+
+      {errorMsg && (
+        <p className="font-body text-[12px] text-[#B23A3A] bg-[#FBEAEA] rounded-xl px-3 py-2">{errorMsg}</p>
+      )}
+
+      <div className="mt-2">
+        <PrimaryButton disabled={loading}>
+          {loading ? (
+            <span className="flex items-center justify-center gap-2">
+              <Loader2 size={16} className="animate-spin" /> Enviando...
+            </span>
+          ) : (
+            "Enviar para análise"
+          )}
+        </PrimaryButton>
+      </div>
+    </form>
+  );
+}
+
+function OwnerStatusScreen({ salon }) {
+  const statusInfo = {
+    pending: {
+      color: "#C9A227",
+      bg: "#FDF6E3",
+      title: "Cadastro em análise",
+      text: "Estamos revisando os documentos e fotos do seu salão. Assim que aprovado, ele aparece na busca automaticamente.",
+    },
+    approved: {
+      color: "#5C7A4C",
+      bg: "#EEF3E9",
+      title: "Salão aprovado!",
+      text: "Seu salão já está visível na busca. A área completa de agenda, equipe e financeiro ainda está sendo construída.",
+    },
+    rejected: {
+      color: "#B23A3A",
+      bg: "#FBEAEA",
+      title: "Cadastro não aprovado",
+      text: salon.rejection_reason || "Não foi possível aprovar seu cadastro. Entre em contato para mais detalhes.",
+    },
+  };
+  const info = statusInfo[salon.verification_status] || statusInfo.pending;
+
+  return (
+    <div className="max-w-xl mx-auto px-6 py-10 text-center">
+      <div
+        className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4"
+        style={{ background: info.bg }}
+      >
+        <Clock size={24} color={info.color} />
+      </div>
+      <h1 className="font-display font-semibold text-[20px] text-[#2B1A1F]">{info.title}</h1>
+      <p className="font-body text-[13.5px] text-[#8A6F72] mt-2">{info.text}</p>
+      <div className="bg-white rounded-2xl p-4 mt-6 text-left shadow-sm">
+        <p className="font-body font-bold text-[14px] text-[#2B1A1F]">{salon.name}</p>
+        <p className="font-body text-[12px] text-[#8A6F72] mt-0.5">{salon.address}</p>
+      </div>
+    </div>
+  );
+}
+
+function AdminScreen() {
+  const [pendingSalons, setPendingSalons] = useState([]);
+  const [allSalons, setAllSalons] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [docUrls, setDocUrls] = useState({});
+
+  async function fetchData() {
+    setLoading(true);
+    const { data: all } = await supabase
+      .from("salons")
+      .select("id, name, address, owner_full_name, document_type, document_number, verification_status, created_at, salon_documents(document_url), salon_photos(photo_url)")
+      .order("created_at", { ascending: false });
+
+    setAllSalons(all || []);
+    setPendingSalons((all || []).filter((s) => s.verification_status === "pending"));
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  async function getDocUrl(salon) {
+    const doc = salon.salon_documents?.[0];
+    if (!doc) return null;
+    if (docUrls[salon.id]) return docUrls[salon.id];
+    const { data } = await supabase.storage.from("salon-documents").createSignedUrl(doc.document_url, 300);
+    if (data?.signedUrl) {
+      setDocUrls((prev) => ({ ...prev, [salon.id]: data.signedUrl }));
+      return data.signedUrl;
+    }
+    return null;
+  }
+
+  async function approve(salonId) {
+    await supabase.from("salons").update({ verification_status: "approved", reviewed_at: new Date().toISOString() }).eq("id", salonId);
+    fetchData();
+  }
+
+  async function reject(salonId) {
+    const reason = window.prompt("Motivo da rejeição (o salão vai ver esse texto):");
+    if (reason === null) return;
+    await supabase.from("salons").update({ verification_status: "rejected", rejection_reason: reason, reviewed_at: new Date().toISOString() }).eq("id", salonId);
+    fetchData();
+  }
+
+  const approvedCount = allSalons.filter((s) => s.verification_status === "approved").length;
+  const rejectedCount = allSalons.filter((s) => s.verification_status === "rejected").length;
+
+  return (
+    <div className="max-w-4xl mx-auto px-6 py-8">
+      <h1 className="font-display font-semibold text-[22px] text-[#2B1A1F]">Painel da plataforma</h1>
+      <p className="font-body text-[13px] text-[#8A6F72] mt-1">Visão geral de todos os salões cadastrados.</p>
+
+      <div className="grid grid-cols-3 gap-3 mt-5">
+        <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
+          <p className="font-display font-semibold text-[22px] text-[#C9A227]">{pendingSalons.length}</p>
+          <p className="font-body text-[11.5px] text-[#8A6F72]">Pendentes</p>
+        </div>
+        <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
+          <p className="font-display font-semibold text-[22px] text-[#5C7A4C]">{approvedCount}</p>
+          <p className="font-body text-[11.5px] text-[#8A6F72]">Aprovados</p>
+        </div>
+        <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
+          <p className="font-display font-semibold text-[22px] text-[#B23A3A]">{rejectedCount}</p>
+          <p className="font-body text-[11.5px] text-[#8A6F72]">Rejeitados</p>
+        </div>
+      </div>
+
+      <div className="bg-[#FDF6E3] rounded-2xl p-3.5 mt-5 flex items-start gap-2">
+        <Sparkles size={15} color="#C9A227" className="shrink-0 mt-0.5" />
+        <p className="font-body text-[12px] text-[#8A6E1F]">
+          Faturamento por salão e da plataforma aparecerão aqui assim que os pagamentos reais estiverem
+          integrados (Pague.me) — próxima etapa do projeto.
+        </p>
+      </div>
+
+      <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F] mt-7 mb-3">
+        Aguardando aprovação {pendingSalons.length > 0 && `(${pendingSalons.length})`}
+      </h2>
+
+      {loading && (
+        <div className="flex items-center gap-2 text-[#8A6F72] py-6">
+          <Loader2 size={16} className="animate-spin" />
+          <span className="font-body text-[13px]">Carregando...</span>
+        </div>
+      )}
+
+      {!loading && pendingSalons.length === 0 && (
+        <p className="font-body text-[13px] text-[#8A6F72]">Nenhum cadastro pendente no momento.</p>
+      )}
+
+      <div className="flex flex-col gap-3">
+        {pendingSalons.map((s) => (
+          <div key={s.id} className="bg-white rounded-2xl p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-body font-bold text-[14px] text-[#2B1A1F]">{s.name}</p>
+                <p className="font-body text-[12px] text-[#8A6F72] mt-0.5">{s.address}</p>
+                <p className="font-body text-[12px] text-[#8A6F72] mt-1">
+                  Responsável: {s.owner_full_name} · {s.document_type?.toUpperCase()}: {s.document_number}
+                </p>
+              </div>
+            </div>
+
+            {s.salon_photos?.length > 0 && (
+              <div className="flex gap-2 mt-3 overflow-x-auto no-scrollbar">
+                {s.salon_photos.map((p, i) => (
+                  <img key={i} src={p.photo_url} alt="" className="w-20 h-20 rounded-xl object-cover shrink-0" />
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={async () => {
+                const url = await getDocUrl(s);
+                if (url) window.open(url, "_blank");
+              }}
+              className="font-body font-semibold text-[12px] text-[#6B2737] underline mt-3"
+            >
+              Ver documento enviado
+            </button>
+
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => approve(s.id)}
+                className="flex-1 bg-[#5C7A4C] text-white rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
+              >
+                Aprovar
+              </button>
+              <button
+                onClick={() => reject(s.id)}
+                className="flex-1 bg-[#B23A3A] text-white rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
+              >
+                Rejeitar
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OwnerAreaScreen({ session, isAdmin }) {
+  const [myLoading, setMyLoading] = useState(true);
+  const [mySalon, setMySalon] = useState(null);
+
+  useEffect(() => {
+    if (isAdmin) {
+      setMyLoading(false);
+      return;
+    }
+    let active = true;
+    supabase
+      .from("salons")
+      .select("*")
+      .eq("owner_id", session.user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!active) return;
+        setMySalon(data);
+        setMyLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isAdmin, session.user.id]);
+
+  if (isAdmin) return <AdminScreen />;
+
+  if (myLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center gap-2 text-[#8A6F72] py-16">
+        <Loader2 size={18} className="animate-spin" />
+        <span className="font-body text-[13px]">Carregando...</span>
+      </div>
+    );
+  }
+
+  if (mySalon) return <OwnerStatusScreen salon={mySalon} />;
+
+  return <OwnerRegistrationForm userId={session.user.id} onSubmitted={() => window.location.reload()} />;
+}
+
+/* ---------------------------------------------------------
    ROOT APP
 --------------------------------------------------------- */
 
 export default function AppBelezaPrototype() {
   const [session, setSession] = useState(undefined); // undefined = checando, null = deslogado, objeto = logado
+  const [isAdmin, setIsAdmin] = useState(false);
   const [userType, setUserType] = useState("client"); // client | owner
   const [screen, setScreen] = useState("search");
   const [salon, setSalon] = useState(null);
@@ -937,6 +1361,19 @@ export default function AppBelezaPrototype() {
     });
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!session) {
+      setIsAdmin(false);
+      return;
+    }
+    supabase
+      .from("platform_admins")
+      .select("user_id")
+      .eq("user_id", session.user.id)
+      .maybeSingle()
+      .then(({ data }) => setIsAdmin(!!data));
+  }, [session]);
 
   const reset = () => {
     setScreen("search");
@@ -1010,12 +1447,24 @@ export default function AppBelezaPrototype() {
           </div>
         </div>
 
-        {screen === "search" && userType === "owner" && (
-          <div className="flex-1 flex flex-col items-center justify-center px-8 text-center gap-2">
-            <p className="font-display font-semibold text-[17px] text-[#2B1A1F]">Portal da dona do salão</p>
+        {screen === "search" && userType === "owner" && session === null && (
+          <div className="flex-1 flex flex-col items-center justify-center px-8 text-center gap-3">
+            <p className="font-display font-semibold text-[17px] text-[#2B1A1F]">Área da dona do salão</p>
             <p className="font-body text-[13px] text-[#8A6F72]">
-              Essa área (cadastro do salão, agenda, financeiro) ainda está sendo construída. Em breve por aqui!
+              Entre ou cadastre-se para gerenciar seu salão.
             </p>
+            <button
+              onClick={() => setScreen("auth")}
+              className="bg-[#6B2737] text-white rounded-full px-5 py-2.5 font-body font-semibold text-[13px] mt-1"
+            >
+              Entrar
+            </button>
+          </div>
+        )}
+
+        {screen === "search" && userType === "owner" && session && (
+          <div className="flex-1 overflow-y-auto">
+            <OwnerAreaScreen session={session} isAdmin={isAdmin} />
           </div>
         )}
 
@@ -1042,8 +1491,8 @@ export default function AppBelezaPrototype() {
 
         {screen === "auth" && (
           <div className="flex-1 flex flex-col overflow-hidden w-full max-w-xl mx-auto sm:border-x sm:border-[#EFE3DE]">
-            <TopHeader title="Entre para continuar" onBack={() => setScreen("salon")} />
-            <AuthScreen onAuthenticated={() => setScreen("booking")} />
+            <TopHeader title="Entre para continuar" onBack={() => setScreen(userType === "owner" ? "search" : "salon")} />
+            <AuthScreen onAuthenticated={() => setScreen(userType === "owner" ? "search" : "booking")} />
           </div>
         )}
 
