@@ -690,9 +690,11 @@ function BookingScreen({
         p_date: selectedDay.isoDate,
       });
       if (!active) return;
-      const service = servicesForProf.find((s) => s.id === selectedServices[0]);
-      const duration = service?.duration_minutes || 30;
-      setTimeSlots(generateTimeSlots({ isoDate: selectedDay.isoDate, busySlots: busySlots || [], durationMinutes: duration }));
+      const totalDuration = selectedServices.reduce((sum, id) => {
+        const service = servicesForProf.find((s) => s.id === id);
+        return sum + (service?.duration_minutes || 30);
+      }, 0);
+      setTimeSlots(generateTimeSlots({ isoDate: selectedDay.isoDate, busySlots: busySlots || [], durationMinutes: totalDuration || 30 }));
       setLoadingSlots(false);
     }
     loadSlots();
@@ -787,7 +789,7 @@ function BookingScreen({
         body: {
           salon_id: salonId,
           professional_id: professional.id,
-          service_id: selectedServices[0], // simplificação: 1 serviço por agendamento nesta versão
+          service_ids: selectedServices,
           scheduled_at: scheduledAtIso,
           total_amount: total,
           pay_full: paymentMode === "total",
@@ -1642,6 +1644,7 @@ function EmployeesManager({ salonId }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
   const [commissionType, setCommissionType] = useState("percentage"); // percentage | fixed
   const [commissionValue, setCommissionValue] = useState("");
@@ -1652,7 +1655,7 @@ function EmployeesManager({ salonId }) {
     setLoading(true);
     const { data } = await supabase
       .from("professionals")
-      .select("id, name, role, commission_type, commission_value, active")
+      .select("id, name, email, role, commission_type, commission_value, active, user_id")
       .eq("salon_id", salonId)
       .order("created_at", { ascending: false });
     setEmployees(data || []);
@@ -1665,6 +1668,7 @@ function EmployeesManager({ salonId }) {
 
   function resetForm() {
     setName("");
+    setEmail("");
     setRole("");
     setCommissionType("percentage");
     setCommissionValue("");
@@ -1676,6 +1680,7 @@ function EmployeesManager({ salonId }) {
   function startEdit(e) {
     setEditingId(e.id);
     setName(e.name);
+    setEmail(e.email || "");
     setRole(e.role || "");
     setCommissionType(e.commission_type);
     setCommissionValue(String(e.commission_value));
@@ -1687,8 +1692,8 @@ function EmployeesManager({ salonId }) {
     setErrorMsg(null);
     const valueNum = parseFloat(commissionValue.replace(",", "."));
 
-    if (!name.trim() || isNaN(valueNum) || valueNum <= 0) {
-      setErrorMsg("Preencha nome e a comissão corretamente.");
+    if (!name.trim() || !email.trim() || isNaN(valueNum) || valueNum <= 0) {
+      setErrorMsg("Preencha nome, email e a comissão corretamente.");
       return;
     }
     if (commissionType === "percentage" && valueNum > 100) {
@@ -1701,13 +1706,14 @@ function EmployeesManager({ salonId }) {
     if (editingId) {
       const { error } = await supabase
         .from("professionals")
-        .update({ name: name.trim(), role: role.trim(), commission_type: commissionType, commission_value: valueNum })
+        .update({ name: name.trim(), email: email.trim(), role: role.trim(), commission_type: commissionType, commission_value: valueNum })
         .eq("id", editingId);
       if (error) setErrorMsg(error.message);
     } else {
       const { error } = await supabase.from("professionals").insert({
         salon_id: salonId,
         name: name.trim(),
+        email: email.trim(),
         role: role.trim(),
         commission_type: commissionType,
         commission_value: valueNum,
@@ -1754,6 +1760,14 @@ function EmployeesManager({ salonId }) {
             placeholder="Nome da funcionária"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+          />
+          <input
+            required
+            type="email"
+            placeholder="Email dela (usado pra ela entrar no site)"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
           />
           <input
@@ -1836,6 +1850,9 @@ function EmployeesManager({ salonId }) {
                 {e.role && `${e.role} · `}
                 {e.commission_type === "percentage" ? `${e.commission_value}% por serviço` : `${fmt(e.commission_value)} fixo`}
                 {!e.active && " · Inativa"}
+              </p>
+              <p className="font-body text-[11px] mt-0.5" style={{ color: e.user_id ? "#5C7A4C" : "#C9A227" }}>
+                {e.user_id ? "Já acessou o próprio login" : "Ainda não fez login"}
               </p>
             </div>
             <button onClick={() => startEdit(e)} className="font-body font-semibold text-[11.5px] text-[#6B2737] shrink-0">
@@ -2379,6 +2396,135 @@ function AdminScreen() {
   );
 }
 
+function EmployeeAreaScreen({ session }) {
+  const [professional, setProfessional] = useState(undefined); // undefined = carregando, null = não achou
+  const [appointments, setAppointments] = useState([]);
+  const [loadingAppointments, setLoadingAppointments] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    async function loadProfessional() {
+      // Primeiro tenta achar um cadastro já vinculado a essa conta
+      let { data } = await supabase
+        .from("professionals")
+        .select("id, name, salon_id, commission_type, commission_value")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+
+      // Se não achou, tenta vincular automaticamente pelo email (primeiro login)
+      if (!data && session.user.email) {
+        const { data: linkedId } = await supabase.rpc("link_employee_account", { p_email: session.user.email });
+        if (linkedId) {
+          const { data: linked } = await supabase
+            .from("professionals")
+            .select("id, name, salon_id, commission_type, commission_value")
+            .eq("id", linkedId)
+            .maybeSingle();
+          data = linked;
+        }
+      }
+
+      if (!active) return;
+      setProfessional(data || null);
+    }
+    loadProfessional();
+    return () => {
+      active = false;
+    };
+  }, [session.user.id]);
+
+  useEffect(() => {
+    if (!professional) return;
+    let active = true;
+    async function loadAppointments() {
+      setLoadingAppointments(true);
+      const { data } = await supabase
+        .from("appointments")
+        .select("id, scheduled_at, status, total_amount, clients(name), services(name, price)")
+        .eq("professional_id", professional.id)
+        .gte("scheduled_at", new Date().toISOString())
+        .order("scheduled_at", { ascending: true });
+      if (!active) return;
+      setAppointments(data || []);
+      setLoadingAppointments(false);
+    }
+    loadAppointments();
+    return () => {
+      active = false;
+    };
+  }, [professional]);
+
+  function commissionFor(totalAmount) {
+    if (!professional) return 0;
+    return professional.commission_type === "percentage"
+      ? (totalAmount * professional.commission_value) / 100
+      : professional.commission_value;
+  }
+
+  if (professional === undefined) {
+    return (
+      <div className="flex-1 flex items-center justify-center gap-2 text-[#8A6F72] py-16">
+        <Loader2 size={18} className="animate-spin" />
+        <span className="font-body text-[13px]">Carregando...</span>
+      </div>
+    );
+  }
+
+  if (professional === null) {
+    return (
+      <div className="max-w-xl mx-auto px-6 py-10 text-center">
+        <p className="font-display font-semibold text-[18px] text-[#2B1A1F]">Nenhum vínculo encontrado</p>
+        <p className="font-body text-[13.5px] text-[#8A6F72] mt-2">
+          Não encontramos um cadastro de funcionária com o email <strong>{session.user.email}</strong>. Peça pra
+          dona do salão cadastrar esse mesmo email na área de funcionárias dela.
+        </p>
+      </div>
+    );
+  }
+
+  const totalCommission = appointments.reduce((sum, a) => sum + commissionFor(a.total_amount), 0);
+
+  return (
+    <div className="max-w-2xl mx-auto px-6 py-8">
+      <h1 className="font-display font-semibold text-[22px] text-[#2B1A1F]">Olá, {professional.name.split(" ")[0]}</h1>
+      <p className="font-body text-[13px] text-[#8A6F72] mt-1">Seus próximos agendamentos</p>
+
+      <div className="bg-white rounded-2xl p-5 shadow-sm mt-5">
+        <p className="font-body text-[12px] text-[#8A6F72]">Comissão a receber (próximos agendamentos)</p>
+        <p className="font-display font-semibold text-[26px] text-[#2B1A1F] mt-0.5">{fmt(totalCommission)}</p>
+      </div>
+
+      {loadingAppointments && (
+        <div className="flex items-center gap-2 text-[#8A6F72] py-6">
+          <Loader2 size={16} className="animate-spin" />
+          <span className="font-body text-[13px]">Carregando agenda...</span>
+        </div>
+      )}
+
+      {!loadingAppointments && appointments.length === 0 && (
+        <p className="font-body text-[13px] text-[#8A6F72] mt-6">Nenhum agendamento futuro por enquanto.</p>
+      )}
+
+      <div className="flex flex-col gap-2.5 mt-5">
+        {appointments.map((a) => {
+          const dateObj = new Date(a.scheduled_at);
+          return (
+            <div key={a.id} className="bg-white rounded-2xl p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <p className="font-body font-bold text-[14px] text-[#2B1A1F]">{a.clients?.name}</p>
+                <p className="font-body font-bold text-[13px] text-[#6B2737]">{fmt(commissionFor(a.total_amount))}</p>
+              </div>
+              <p className="font-body text-[12px] text-[#8A6F72] mt-0.5">
+                {a.services?.name} · {dateObj.toLocaleDateString("pt-BR")} às {dateObj.toTimeString().slice(0, 5)}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function OwnerAreaScreen({ session, isAdmin }) {
   const [myLoading, setMyLoading] = useState(true);
   const [mySalon, setMySalon] = useState(null);
@@ -2541,6 +2687,17 @@ export default function AppBelezaPrototype() {
               >
                 Dona do comércio
               </button>
+              <button
+                onClick={() => {
+                  setUserType("employee");
+                  setScreen("search");
+                }}
+                className={`rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px] transition-colors ${
+                  userType === "employee" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
+                }`}
+              >
+                Sou funcionária
+              </button>
             </div>
 
             <div className="flex items-center gap-3 shrink-0">
@@ -2581,6 +2738,27 @@ export default function AppBelezaPrototype() {
           </div>
         )}
 
+        {screen === "search" && userType === "employee" && session === null && (
+          <div className="flex-1 flex flex-col items-center justify-center px-8 text-center gap-3">
+            <p className="font-display font-semibold text-[17px] text-[#2B1A1F]">Área da funcionária</p>
+            <p className="font-body text-[13px] text-[#8A6F72]">
+              Entre com o email que a dona do salão cadastrou pra você.
+            </p>
+            <button
+              onClick={() => setScreen("auth")}
+              className="bg-[#6B2737] text-white rounded-full px-5 py-2.5 font-body font-semibold text-[13px] mt-1"
+            >
+              Entrar
+            </button>
+          </div>
+        )}
+
+        {screen === "search" && userType === "employee" && session && (
+          <div className="flex-1 overflow-y-auto">
+            <EmployeeAreaScreen session={session} />
+          </div>
+        )}
+
         {screen === "search" && userType === "client" && (
           <div className="flex-1 flex flex-col pt-2 overflow-hidden">
             <SearchScreen
@@ -2604,8 +2782,8 @@ export default function AppBelezaPrototype() {
 
         {screen === "auth" && (
           <div className="flex-1 flex flex-col overflow-hidden w-full max-w-xl mx-auto sm:border-x sm:border-[#EFE3DE]">
-            <TopHeader title="Entre para continuar" onBack={() => setScreen(userType === "owner" ? "search" : "salon")} />
-            <AuthScreen onAuthenticated={() => setScreen(userType === "owner" ? "search" : "booking")} />
+            <TopHeader title="Entre para continuar" onBack={() => setScreen(userType === "client" ? "salon" : "search")} />
+            <AuthScreen onAuthenticated={() => setScreen(userType === "client" ? "booking" : "search")} />
           </div>
         )}
 
