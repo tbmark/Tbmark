@@ -306,30 +306,32 @@ function SearchScreen({ onOpenSalon }) {
   }, []);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#FAF5F1] pb-4">
-      <div className="px-5 pt-6 pb-2">
-        <div className="flex items-center gap-1.5 text-[#8A6F72] font-body text-[12.5px] mb-1">
+    <div className="flex-1 overflow-y-auto pb-10">
+      <div className="max-w-2xl mx-auto px-6 pt-6 pb-2 text-center">
+        <div className="flex items-center justify-center gap-1.5 text-[#8A6F72] font-body text-[12.5px] mb-2">
           <MapPin size={13} />
           <span>Batel, Curitiba — usando sua localização</span>
         </div>
-        <h1 className="font-display font-semibold text-[24px] text-[#2B1A1F] leading-tight">
+        <h1 className="font-display font-semibold text-[30px] sm:text-[38px] text-[#2B1A1F] leading-tight">
           Boa tarde, Bianca ✨
         </h1>
-        <p className="font-body text-[13.5px] text-[#8A6F72] mt-0.5">O que você quer fazer hoje?</p>
+        <p className="font-body text-[14px] text-[#8A6F72] mt-1.5">
+          Encontre e agende no seu próximo salão de beleza
+        </p>
       </div>
 
-      <div className="px-5 mt-4">
-        <div className="flex items-center gap-2 bg-white rounded-2xl px-4 py-3 shadow-sm">
-          <Search size={17} color="#B49A96" />
+      <div className="max-w-2xl mx-auto px-6 mt-5">
+        <div className="flex items-center gap-2 bg-white rounded-2xl px-4 py-3.5 shadow-sm">
+          <Search size={18} color="#B49A96" />
           <input
             type="text"
             placeholder="Buscar salão ou procedimento"
-            className="flex-1 bg-transparent outline-none font-body text-[14px] text-[#2B1A1F] placeholder:text-[#B49A96]"
+            className="flex-1 bg-transparent outline-none font-body text-[14.5px] text-[#2B1A1F] placeholder:text-[#B49A96]"
           />
         </div>
       </div>
 
-      <div className="flex gap-2 px-5 mt-4 overflow-x-auto no-scrollbar">
+      <div className="max-w-2xl mx-auto flex gap-2 px-6 mt-4 overflow-x-auto no-scrollbar justify-center flex-wrap">
         {chips.map((c) => (
           <button
             key={c}
@@ -344,17 +346,17 @@ function SearchScreen({ onOpenSalon }) {
       </div>
 
       {activeChip !== "Todos" && (
-        <p className="px-5 mt-2 font-body text-[11.5px] text-[#8A6F72]">
+        <p className="text-center font-body text-[11.5px] text-[#8A6F72] mt-2">
           Filtrando por: <span className="font-semibold text-[#6B2737]">{activeChip}</span>
         </p>
       )}
 
-      <div className="px-5 mt-6 flex items-center justify-between">
-        <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F]">Perto de você</h2>
+      <div className="max-w-5xl mx-auto px-6 mt-8 flex items-center justify-between">
+        <h2 className="font-display font-semibold text-[18px] text-[#2B1A1F]">Perto de você</h2>
         <span className="font-body text-[12px] text-[#8A6F72]">Ver tudo</span>
       </div>
 
-      <div className="px-5 mt-3 flex flex-col gap-3">
+      <div className="max-w-5xl mx-auto px-6 mt-4">
         {loading && (
           <div className="flex items-center justify-center gap-2 py-12 text-[#8A6F72]">
             <Loader2 size={18} className="animate-spin" />
@@ -367,7 +369,7 @@ function SearchScreen({ onOpenSalon }) {
         )}
 
         {!loading && !errorMsg && salons.length === 0 && (
-          <div className="bg-white rounded-2xl p-6 text-center">
+          <div className="bg-white rounded-2xl p-8 text-center max-w-md mx-auto">
             <p className="font-body font-semibold text-[13.5px] text-[#2B1A1F]">
               Nenhum salão cadastrado ainda
             </p>
@@ -377,47 +379,47 @@ function SearchScreen({ onOpenSalon }) {
           </div>
         )}
 
-        {!loading &&
-          salons.map((salon) => {
-            const tags = [...new Set((salon.services || []).map((s) => s.name))].slice(0, 3);
-            return (
-              <button key={salon.id} onClick={() => onOpenSalon(salon)} className="text-left">
-                <div className="bg-white rounded-2xl overflow-hidden shadow-sm active:scale-[0.99] transition-transform">
-                  <div
-                    className="h-28 relative bg-gradient-to-br from-[#6B2737] to-[#A2555E]"
-                    style={
-                      salon.photo_url
-                        ? { backgroundImage: `url(${salon.photo_url})`, backgroundSize: "cover", backgroundPosition: "center" }
-                        : undefined
-                    }
-                  >
-                    {salon.is_featured && (
-                      <span className="absolute top-2.5 left-2.5 bg-[#C9A227] text-white text-[10px] font-body font-bold px-2 py-1 rounded-full flex items-center gap-1">
-                        <Sparkles size={10} /> Destaque
-                      </span>
-                    )}
-                  </div>
-                  <div className="p-3.5">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-display font-semibold text-[15px] text-[#2B1A1F]">{salon.name}</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {!loading &&
+            salons.map((salon) => {
+              const tags = [...new Set((salon.services || []).map((s) => s.name))].slice(0, 3);
+              return (
+                <button key={salon.id} onClick={() => onOpenSalon(salon)} className="text-left">
+                  <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md active:scale-[0.99] transition-all h-full flex flex-col">
+                    <div
+                      className="h-32 relative bg-gradient-to-br from-[#6B2737] to-[#A2555E]"
+                      style={
+                        salon.photo_url
+                          ? { backgroundImage: `url(${salon.photo_url})`, backgroundSize: "cover", backgroundPosition: "center" }
+                          : undefined
+                      }
+                    >
+                      {salon.is_featured && (
+                        <span className="absolute top-2.5 left-2.5 bg-[#C9A227] text-white text-[10px] font-body font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                          <Sparkles size={10} /> Destaque
+                        </span>
+                      )}
                     </div>
-                    {salon.address && (
-                      <p className="font-body text-[12px] text-[#8A6F72] mt-0.5">{salon.address}</p>
-                    )}
-                    {tags.length > 0 && (
-                      <div className="flex gap-1.5 mt-2 flex-wrap">
-                        {tags.map((t) => (
-                          <span key={t} className="text-[10.5px] font-body font-semibold px-2 py-0.5 rounded-full bg-[#FAF5F1] text-[#6B2737]">
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                    <div className="p-4 flex-1 flex flex-col">
+                      <h3 className="font-display font-semibold text-[16px] text-[#2B1A1F]">{salon.name}</h3>
+                      {salon.address && (
+                        <p className="font-body text-[12px] text-[#8A6F72] mt-0.5">{salon.address}</p>
+                      )}
+                      {tags.length > 0 && (
+                        <div className="flex gap-1.5 mt-2.5 flex-wrap">
+                          {tags.map((t) => (
+                            <span key={t} className="text-[10.5px] font-body font-semibold px-2 py-0.5 rounded-full bg-[#FAF5F1] text-[#6B2737]">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
+        </div>
       </div>
     </div>
   );
@@ -864,6 +866,7 @@ function ConfirmedScreen({ salon, professional, date, time, onDone }) {
 
 export default function AppBelezaPrototype() {
   const [session, setSession] = useState(undefined); // undefined = checando, null = deslogado, objeto = logado
+  const [userType, setUserType] = useState("client"); // client | owner
   const [screen, setScreen] = useState("search");
   const [salon, setSalon] = useState(null);
   const [professional, setProfessional] = useState(null);
@@ -893,8 +896,14 @@ export default function AppBelezaPrototype() {
   const toggleService = (id) =>
     setSelectedServices((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
+  // Só pede login na hora de escolher a profissional (início do agendamento de verdade)
+  const handleSelectProfessional = (p) => {
+    setProfessional(p);
+    setScreen(session ? "booking" : "auth");
+  };
+
   return (
-    <div className="w-full min-h-screen bg-[#E9DFDA] flex justify-center">
+    <div className="w-full min-h-screen bg-[#FAF5F1]">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap');
         .font-display{font-family:'Fraunces',serif;}
@@ -904,82 +913,109 @@ export default function AppBelezaPrototype() {
         @keyframes pop{0%{transform:scale(0.6);opacity:0;}100%{transform:scale(1);opacity:1;}}
       `}</style>
 
-      {/* Ocupa a tela toda no celular; no computador fica centralizado numa coluna estreita, como um app real */}
-      <div className="w-full max-w-[480px] min-h-screen bg-[#FAF5F1] flex flex-col relative sm:shadow-2xl">
+      <div className="w-full min-h-screen flex flex-col relative">
 
-        {session === undefined && (
-          <div className="flex-1 flex items-center justify-center gap-2 text-[#8A6F72]">
-            <Loader2 size={20} className="animate-spin" />
-            <span className="font-body text-[13px]">Carregando...</span>
-          </div>
-        )}
+        {/* NAVBAR — presente em todas as telas */}
+        <div className="w-full border-b border-[#EFE3DE] bg-white/80 backdrop-blur sticky top-0 z-30">
+          <div className="max-w-5xl mx-auto px-6 py-3.5 flex items-center justify-between gap-4">
+            <span className="font-display font-semibold text-[19px] text-[#6B2737] shrink-0">TBMark</span>
 
-        {session === null && <AuthScreen onAuthenticated={() => {}} />}
-
-        {session && (
-          <>
-          <div className="flex-1 flex flex-col pt-6 overflow-hidden">
-            {screen === "search" && (
-              <SearchScreen
-                onOpenSalon={(s) => {
-                  setSalon(s);
-                  setScreen("salon");
+            <div className="flex items-center gap-1 bg-[#FAF5F1] p-1 rounded-full shrink-0">
+              <button
+                onClick={() => {
+                  setUserType("client");
+                  setScreen("search");
                 }}
-              />
-            )}
-
-            {screen === "salon" && salon && (
-              <SalonScreen
-                salon={salon}
-                onBack={() => setScreen("search")}
-                onSelectProfessional={(p) => {
-                  setProfessional(p);
-                  setScreen("booking");
+                className={`rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px] transition-colors ${
+                  userType === "client" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
+                }`}
+              >
+                Sou cliente
+              </button>
+              <button
+                onClick={() => {
+                  setUserType("owner");
+                  setScreen("search");
                 }}
-              />
-            )}
-
-            {screen === "booking" && professional && (
-              <BookingScreen
-                professional={professional}
-                onBack={() => setScreen("salon")}
-                onConfirmed={() => setScreen("confirmed")}
-                selectedServices={selectedServices}
-                toggleService={toggleService}
-                date={date}
-                setDate={setDate}
-                time={time}
-                setTime={setTime}
-                step={step}
-                setStep={setStep}
-              />
-            )}
-
-            {screen === "confirmed" && professional && (
-              <ConfirmedScreen salon={salon} professional={professional} date={date} time={time} onDone={reset} />
-            )}
-          </div>
-
-          {/* BOTTOM NAV — only on search/home */}
-          {screen === "search" && (
-            <div className="flex items-center justify-around border-t border-[#EFE3DE] bg-white py-2.5 px-2">
-              {[
-                { icon: Home, label: "Início", active: true },
-                { icon: Search, label: "Buscar" },
-                { icon: Heart, label: "Favoritos" },
-                { icon: User, label: "Perfil", onClick: () => supabase.auth.signOut() },
-              ].map(({ icon: Icon, label, active, onClick }) => (
-                <button key={label} onClick={onClick} className="flex flex-col items-center gap-0.5 flex-1">
-                  <Icon size={19} color={active ? "#6B2737" : "#B49A96"} />
-                  <span className={`font-body text-[10px] font-semibold ${active ? "text-[#6B2737]" : "text-[#B49A96]"}`}>
-                    {label}
-                  </span>
-                </button>
-              ))}
+                className={`rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px] transition-colors ${
+                  userType === "owner" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
+                }`}
+              >
+                Dona do comércio
+              </button>
             </div>
-          )}
-          </>
+
+            <button
+              onClick={() => (session ? supabase.auth.signOut() : setScreen("auth"))}
+              className="flex items-center gap-1.5 font-body font-semibold text-[12.5px] text-[#6B2737] shrink-0"
+            >
+              <User size={15} />
+              {session ? "Sair" : "Entrar"}
+            </button>
+          </div>
+        </div>
+
+        {screen === "search" && userType === "owner" && (
+          <div className="flex-1 flex flex-col items-center justify-center px-8 text-center gap-2">
+            <p className="font-display font-semibold text-[17px] text-[#2B1A1F]">Portal da dona do salão</p>
+            <p className="font-body text-[13px] text-[#8A6F72]">
+              Essa área (cadastro do salão, agenda, financeiro) ainda está sendo construída. Em breve por aqui!
+            </p>
+          </div>
         )}
+
+        {screen === "search" && userType === "client" && (
+          <div className="flex-1 flex flex-col pt-2 overflow-hidden">
+            <SearchScreen
+              onOpenSalon={(s) => {
+                setSalon(s);
+                setScreen("salon");
+              }}
+            />
+          </div>
+        )}
+
+        {screen === "salon" && salon && (
+          <div className="flex-1 flex flex-col pt-6 overflow-hidden w-full max-w-xl mx-auto sm:border-x sm:border-[#EFE3DE]">
+            <SalonScreen
+              salon={salon}
+              onBack={() => setScreen("search")}
+              onSelectProfessional={handleSelectProfessional}
+            />
+          </div>
+        )}
+
+        {screen === "auth" && (
+          <div className="flex-1 flex flex-col overflow-hidden w-full max-w-xl mx-auto sm:border-x sm:border-[#EFE3DE]">
+            <TopHeader title="Entre para continuar" onBack={() => setScreen("salon")} />
+            <AuthScreen onAuthenticated={() => setScreen("booking")} />
+          </div>
+        )}
+
+        {screen === "booking" && professional && session && (
+          <div className="flex-1 flex flex-col pt-6 overflow-hidden w-full max-w-xl mx-auto sm:border-x sm:border-[#EFE3DE]">
+            <BookingScreen
+              professional={professional}
+              onBack={() => setScreen("salon")}
+              onConfirmed={() => setScreen("confirmed")}
+              selectedServices={selectedServices}
+              toggleService={toggleService}
+              date={date}
+              setDate={setDate}
+              time={time}
+              setTime={setTime}
+              step={step}
+              setStep={setStep}
+            />
+          </div>
+        )}
+
+        {screen === "confirmed" && professional && (
+          <div className="flex-1 flex flex-col overflow-hidden w-full max-w-xl mx-auto sm:border-x sm:border-[#EFE3DE]">
+            <ConfirmedScreen salon={salon} professional={professional} date={date} time={time} onDone={reset} />
+          </div>
+        )}
+
       </div>
     </div>
   );
