@@ -806,7 +806,7 @@ function BookingScreen({
       }
 
       if (payMethod === "pix" && data.qr_code) {
-        setPixData({ qr_code: data.qr_code, qr_code_base64: data.qr_code_base64 });
+        setPixData({ qr_code: data.qr_code, qr_code_base64: data.qr_code_base64, appointmentId: data.appointment_id });
         setProcessing(false);
         return;
       }
@@ -818,6 +818,24 @@ function BookingScreen({
       setProcessing(false);
     }
   }
+
+  // Enquanto o QR code do Pix estiver na tela, verifica automaticamente
+  // a cada 4 segundos se o pagamento já foi confirmado (via webhook)
+  useEffect(() => {
+    if (!pixData?.appointmentId) return;
+    const interval = setInterval(async () => {
+      const { data } = await supabase
+        .from("payments")
+        .select("status")
+        .eq("appointment_id", pixData.appointmentId)
+        .maybeSingle();
+      if (data?.status === "paid") {
+        clearInterval(interval);
+        onConfirmed();
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [pixData?.appointmentId]);
 
   async function handleConfirm() {
     if (mensalista) {
@@ -1130,7 +1148,10 @@ function BookingScreen({
           </PrimaryButton>
         )}
         {step === 2 && pixData && (
-          <PrimaryButton onClick={onConfirmed}>Já paguei, continuar</PrimaryButton>
+          <div className="flex items-center justify-center gap-2 py-3 text-[#8A6F72]">
+            <Loader2 size={16} className="animate-spin" />
+            <span className="font-body text-[13px]">Aguardando confirmação do pagamento...</span>
+          </div>
         )}
       </div>
     </div>
