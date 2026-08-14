@@ -1171,6 +1171,7 @@ function OwnerStatusScreen({ salon }) {
 
       <div className="mt-10 text-left">
         <ServicesManager salonId={salon.id} />
+        <EmployeesManager salonId={salon.id} />
       </div>
     </div>
   );
@@ -1352,6 +1353,224 @@ function ServicesManager({ salonId }) {
               {s.active ? "Desativar" : "Ativar"}
             </button>
             <button onClick={() => removeService(s.id)} className="font-body font-semibold text-[11.5px] text-[#B23A3A] shrink-0">
+              Remover
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EmployeesManager({ salonId }) {
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("");
+  const [commissionType, setCommissionType] = useState("percentage"); // percentage | fixed
+  const [commissionValue, setCommissionValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
+
+  async function fetchEmployees() {
+    setLoading(true);
+    const { data } = await supabase
+      .from("professionals")
+      .select("id, name, role, commission_type, commission_value, active")
+      .eq("salon_id", salonId)
+      .order("created_at", { ascending: false });
+    setEmployees(data || []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchEmployees();
+  }, [salonId]);
+
+  function resetForm() {
+    setName("");
+    setRole("");
+    setCommissionType("percentage");
+    setCommissionValue("");
+    setEditingId(null);
+    setShowForm(false);
+    setErrorMsg(null);
+  }
+
+  function startEdit(e) {
+    setEditingId(e.id);
+    setName(e.name);
+    setRole(e.role || "");
+    setCommissionType(e.commission_type);
+    setCommissionValue(String(e.commission_value));
+    setShowForm(true);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setErrorMsg(null);
+    const valueNum = parseFloat(commissionValue.replace(",", "."));
+
+    if (!name.trim() || isNaN(valueNum) || valueNum <= 0) {
+      setErrorMsg("Preencha nome e a comissão corretamente.");
+      return;
+    }
+    if (commissionType === "percentage" && valueNum > 100) {
+      setErrorMsg("A porcentagem não pode passar de 100%.");
+      return;
+    }
+
+    setSaving(true);
+
+    if (editingId) {
+      const { error } = await supabase
+        .from("professionals")
+        .update({ name: name.trim(), role: role.trim(), commission_type: commissionType, commission_value: valueNum })
+        .eq("id", editingId);
+      if (error) setErrorMsg(error.message);
+    } else {
+      const { error } = await supabase.from("professionals").insert({
+        salon_id: salonId,
+        name: name.trim(),
+        role: role.trim(),
+        commission_type: commissionType,
+        commission_value: valueNum,
+      });
+      if (error) setErrorMsg(error.message);
+    }
+
+    setSaving(false);
+    if (!errorMsg) {
+      resetForm();
+      fetchEmployees();
+    }
+  }
+
+  async function toggleActive(e) {
+    await supabase.from("professionals").update({ active: !e.active }).eq("id", e.id);
+    fetchEmployees();
+  }
+
+  async function removeEmployee(id) {
+    if (!window.confirm("Remover esta funcionária?")) return;
+    await supabase.from("professionals").delete().eq("id", id);
+    fetchEmployees();
+  }
+
+  return (
+    <div className="mt-10">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-display font-semibold text-[17px] text-[#2B1A1F]">Funcionárias</h2>
+        {!showForm && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="bg-[#6B2737] text-white rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px]"
+          >
+            + Nova funcionária
+          </button>
+        )}
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleSubmit} className="bg-white rounded-2xl p-4 shadow-sm flex flex-col gap-2.5 mb-4">
+          <input
+            required
+            placeholder="Nome da funcionária"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+          />
+          <input
+            placeholder="Especialidade (ex: Cabelo, Unhas)"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+          />
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setCommissionType("percentage")}
+              className={`flex-1 rounded-xl py-2.5 font-body font-semibold text-[12.5px] ${
+                commissionType === "percentage" ? "bg-[#6B2737] text-white" : "bg-[#FAF5F1] text-[#8A6F72]"
+              }`}
+            >
+              % do serviço
+            </button>
+            <button
+              type="button"
+              onClick={() => setCommissionType("fixed")}
+              className={`flex-1 rounded-xl py-2.5 font-body font-semibold text-[12.5px] ${
+                commissionType === "fixed" ? "bg-[#6B2737] text-white" : "bg-[#FAF5F1] text-[#8A6F72]"
+              }`}
+            >
+              Valor fixo (R$)
+            </button>
+          </div>
+
+          <input
+            required
+            placeholder={commissionType === "percentage" ? "Ex: 40 (para 40%)" : "Ex: 50,00 por serviço"}
+            inputMode="decimal"
+            value={commissionValue}
+            onChange={(e) => setCommissionValue(e.target.value)}
+            className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+          />
+
+          {errorMsg && (
+            <p className="font-body text-[11.5px] text-[#B23A3A] bg-[#FBEAEA] rounded-lg px-3 py-1.5">{errorMsg}</p>
+          )}
+
+          <div className="flex gap-2 mt-1">
+            <button
+              type="button"
+              onClick={resetForm}
+              className="flex-1 bg-[#FAF5F1] text-[#8A6F72] rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
+            >
+              Cancelar
+            </button>
+            <button
+              disabled={saving}
+              className="flex-1 bg-[#6B2737] text-white rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
+            >
+              {saving ? "Salvando..." : editingId ? "Salvar alterações" : "Adicionar"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {loading && (
+        <div className="flex items-center gap-2 text-[#8A6F72] py-4">
+          <Loader2 size={16} className="animate-spin" />
+          <span className="font-body text-[13px]">Carregando...</span>
+        </div>
+      )}
+
+      {!loading && employees.length === 0 && !showForm && (
+        <p className="font-body text-[13px] text-[#8A6F72]">Nenhuma funcionária cadastrada ainda.</p>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {employees.map((e) => (
+          <div key={e.id} className={`bg-white rounded-2xl p-3.5 shadow-sm flex items-center gap-3 ${!e.active ? "opacity-50" : ""}`}>
+            <Avatar initials={initialsOf(e.name)} color={AVATAR_COLORS[0]} size={36} />
+            <div className="flex-1 min-w-0">
+              <p className="font-body font-bold text-[13.5px] text-[#2B1A1F] truncate">{e.name}</p>
+              <p className="font-body text-[12px] text-[#8A6F72]">
+                {e.role && `${e.role} · `}
+                {e.commission_type === "percentage" ? `${e.commission_value}% por serviço` : `${fmt(e.commission_value)} fixo`}
+                {!e.active && " · Inativa"}
+              </p>
+            </div>
+            <button onClick={() => startEdit(e)} className="font-body font-semibold text-[11.5px] text-[#6B2737] shrink-0">
+              Editar
+            </button>
+            <button onClick={() => toggleActive(e)} className="font-body font-semibold text-[11.5px] text-[#8A6F72] shrink-0">
+              {e.active ? "Desativar" : "Ativar"}
+            </button>
+            <button onClick={() => removeEmployee(e.id)} className="font-body font-semibold text-[11.5px] text-[#B23A3A] shrink-0">
               Remover
             </button>
           </div>
