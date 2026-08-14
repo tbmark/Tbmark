@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Search, MapPin, Star, ChevronLeft, Check, Clock,
   Home, Heart, User, Calendar, CreditCard, Sparkles,
@@ -7,19 +7,62 @@ import {
 import { supabase } from "./lib/supabase";
 
 /* ---------------------------------------------------------
-   MOCK DATA — datas e horários ainda são fixos até a lógica
-   de disponibilidade real ser construída (próxima etapa)
+   Disponibilidade real: horário de funcionamento padrão
+   (09:00–18:00, intervalos de 30 min) — configuração por
+   profissional fica pra uma próxima etapa
 --------------------------------------------------------- */
 
-const DATES = [
-  { label: "Hoje", sub: "13 Ago" },
-  { label: "Amanhã", sub: "14 Ago" },
-  { label: "Sex", sub: "15 Ago" },
-  { label: "Sáb", sub: "16 Ago" },
-  { label: "Dom", sub: "17 Ago" },
-];
+const BUSINESS_START_HOUR = 9;
+const BUSINESS_END_HOUR = 18;
+const SLOT_INTERVAL_MINUTES = 30;
 
-const TIMES = ["09:00", "10:30", "11:15", "13:00", "14:30", "16:00", "17:30"];
+const WEEKDAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+function getNextDays(count) {
+  const days = [];
+  const today = new Date();
+  for (let i = 0; i < count; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    days.push({
+      date: d,
+      isoDate: d.toISOString().slice(0, 10),
+      label: i === 0 ? "Hoje" : i === 1 ? "Amanhã" : WEEKDAY_LABELS[d.getDay()],
+      sub: `${String(d.getDate()).padStart(2, "0")} ${d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", "")}`,
+    });
+  }
+  return days;
+}
+
+function generateTimeSlots({ isoDate, busySlots, durationMinutes }) {
+  const slots = [];
+  const now = new Date();
+  const dayStart = new Date(`${isoDate}T00:00:00`);
+  const isToday = dayStart.toDateString() === now.toDateString();
+
+  for (let h = BUSINESS_START_HOUR; h < BUSINESS_END_HOUR; h++) {
+    for (let m = 0; m < 60; m += SLOT_INTERVAL_MINUTES) {
+      const slotStart = new Date(`${isoDate}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+      const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60000);
+
+      if (slotEnd.getHours() > BUSINESS_END_HOUR || (slotEnd.getHours() === BUSINESS_END_HOUR && slotEnd.getMinutes() > 0)) continue;
+      if (isToday && slotStart <= now) continue;
+
+      const overlaps = busySlots.some((b) => {
+        const busyStart = new Date(b.start_time);
+        const busyEnd = new Date(b.end_time);
+        return slotStart < busyEnd && slotEnd > busyStart;
+      });
+      if (overlaps) continue;
+
+      slots.push({
+        label: slotStart.toTimeString().slice(0, 5),
+        iso: slotStart.toISOString(),
+      });
+    }
+  }
+  return slots;
+}
 
 const fmt = (n) => `R$ ${n.toFixed(2).replace(".", ",")}`;
 const initialsOf = (name) => name.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
@@ -615,7 +658,7 @@ function SalonScreen({ salon, onBack, onSelectProfessional }) {
 --------------------------------------------------------- */
 
 function BookingScreen({
-  professional, onBack, onConfirmed,
+  salonId, professional, onBack, onConfirmed,
   selectedServices, toggleService,
   date, setDate, time, setTime,
   step, setStep,
@@ -625,6 +668,40 @@ function BookingScreen({
   const [method, setMethod] = useState("pix");
   const [servicesForProf, setServicesForProf] = useState([]);
   const [loadingServices, setLoadingServices] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [paymentError, setPaymentError] = useState(null);
+  const [pixData, setPixData] = useState(null); // { qr_code, qr_code_base64 }
+  const [cardBrickReady, setCardBrickReady] = useState(false);
+  const cardBrickRef = useRef(null);
+
+  const [availableDays] = useState(() => getNextDays(6));
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [timeSlots, setTimeSlots] = useState([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [scheduledAtIso, setScheduledAtIso] = useState(null);
+
+  useEffect(() => {
+    if (!selectedDay || selectedServices.length === 0) return;
+    let active = true;
+    async function loadSlots() {
+      setLoadingSlots(true);
+      const { data: busySlots } = await supabase.rpc("get_busy_slots", {
+        p_professional_id: professional.id,
+        p_date: selectedDay.isoDate,
+      });
+      if (!active) return;
+      const service = servicesForProf.find((s) => s.id === selectedServices[0]);
+      const duration = service?.duration_minutes || 30;
+      setTimeSlots(generateTimeSlots({ isoDate: selectedDay.isoDate, busySlots: busySlots || [], durationMinutes: duration }));
+      setLoadingSlots(false);
+    }
+    loadSlots();
+    return () => {
+      active = false;
+    };
+  }, [selectedDay, professional.id, selectedServices, servicesForProf]);
+
+  const mpRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -654,6 +731,105 @@ function BookingScreen({
   const canContinueStep1 = !!date && !!time;
 
   const titles = ["Serviços", "Data e horário", "Pagamento"];
+
+  const chargeAmount = mensalista ? 0 : paymentMode === "sinal" ? sinal : total;
+
+  // Inicializa o Mercado Pago (Public Key) uma vez
+  useEffect(() => {
+    if (window.MercadoPago && !mpRef.current) {
+      mpRef.current = new window.MercadoPago(import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY, { locale: "pt-BR" });
+    }
+  }, []);
+
+  // Carrega o Card Payment Brick quando o método for cartão
+  useEffect(() => {
+    if (step !== 2 || mensalista) return;
+    if (method !== "credito" && method !== "debito") return;
+    if (!mpRef.current || !document.getElementById("card-brick-container")) return;
+
+    let brickController;
+    setCardBrickReady(false);
+
+    mpRef.current
+      .bricks()
+      .create("cardPayment", "card-brick-container", {
+        initialization: { amount: chargeAmount },
+        customization: { visual: { style: { theme: "bootstrap" } } },
+        callbacks: {
+          onReady: () => setCardBrickReady(true),
+          onSubmit: (cardFormData) => {
+            return processPayment({
+              method: method === "credito" ? "credit_card" : "debit_card",
+              card_token: cardFormData.token,
+              installments: cardFormData.installments,
+              payer_email: cardFormData.payer?.email,
+              payer_cpf: cardFormData.payer?.identification?.number,
+            });
+          },
+          onError: (err) => setPaymentError(String(err?.message || err)),
+        },
+      })
+      .then((controller) => {
+        brickController = controller;
+        cardBrickRef.current = controller;
+      });
+
+    return () => {
+      brickController?.unmount?.();
+    };
+  }, [step, method, mensalista, chargeAmount]);
+
+  async function processPayment({ method: payMethod, card_token, installments, payer_email, payer_cpf }) {
+    setProcessing(true);
+    setPaymentError(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("create-payment", {
+        body: {
+          salon_id: salonId,
+          professional_id: professional.id,
+          service_id: selectedServices[0], // simplificação: 1 serviço por agendamento nesta versão
+          scheduled_at: scheduledAtIso,
+          total_amount: total,
+          pay_full: paymentMode === "total",
+          method: payMethod,
+          card_token,
+          installments,
+          payer_email,
+          payer_cpf,
+        },
+      });
+
+      if (error || data?.error) {
+        setPaymentError(data?.error || error?.message || "Não foi possível processar o pagamento.");
+        setProcessing(false);
+        return;
+      }
+
+      if (payMethod === "pix" && data.qr_code) {
+        setPixData({ qr_code: data.qr_code, qr_code_base64: data.qr_code_base64 });
+        setProcessing(false);
+        return;
+      }
+
+      setProcessing(false);
+      onConfirmed();
+    } catch (err) {
+      setPaymentError(String(err));
+      setProcessing(false);
+    }
+  }
+
+  async function handleConfirm() {
+    if (mensalista) {
+      // Mensalista com recorrência em dia: nenhuma cobrança agora.
+      // A checagem real de recorrência/mensalidade fica pra próxima etapa.
+      onConfirmed();
+      return;
+    }
+    if (method === "pix") {
+      processPayment({ method: "pix" });
+    }
+  }
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#FAF5F1] pb-4 flex flex-col">
@@ -718,16 +894,21 @@ function BookingScreen({
           <div>
             <p className="font-body font-bold text-[12.5px] text-[#2B1A1F] mb-2">Escolha o dia</p>
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
-              {DATES.map((d) => (
+              {availableDays.map((d) => (
                 <button
-                  key={d.label}
-                  onClick={() => setDate(d.label)}
+                  key={d.isoDate}
+                  onClick={() => {
+                    setSelectedDay(d);
+                    setDate(d.label);
+                    setTime(null);
+                    setScheduledAtIso(null);
+                  }}
                   className={`shrink-0 flex flex-col items-center rounded-2xl px-4 py-2.5 ${
-                    date === d.label ? "bg-[#6B2737] text-white" : "bg-white text-[#2B1A1F]"
+                    selectedDay?.isoDate === d.isoDate ? "bg-[#6B2737] text-white" : "bg-white text-[#2B1A1F]"
                   }`}
                 >
                   <span className="font-body font-bold text-[13px]">{d.label}</span>
-                  <span className={`font-body text-[10.5px] ${date === d.label ? "text-white/70" : "text-[#8A6F72]"}`}>
+                  <span className={`font-body text-[10.5px] ${selectedDay?.isoDate === d.isoDate ? "text-white/70" : "text-[#8A6F72]"}`}>
                     {d.sub}
                   </span>
                 </button>
@@ -739,19 +920,38 @@ function BookingScreen({
             <p className="font-body font-bold text-[12.5px] text-[#2B1A1F] mb-2 flex items-center gap-1.5">
               <Clock size={13} /> Horários disponíveis
             </p>
-            <div className="grid grid-cols-3 gap-2">
-              {TIMES.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTime(t)}
-                  className={`rounded-xl py-2.5 font-body font-semibold text-[13px] ${
-                    time === t ? "bg-[#6B2737] text-white" : "bg-white text-[#2B1A1F]"
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
+
+            {loadingSlots && (
+              <div className="flex items-center gap-2 text-[#8A6F72] py-4">
+                <Loader2 size={16} className="animate-spin" />
+                <span className="font-body text-[13px]">Verificando horários...</span>
+              </div>
+            )}
+
+            {!loadingSlots && timeSlots.length === 0 && (
+              <p className="font-body text-[13px] text-[#8A6F72] py-2">
+                Nenhum horário disponível nesse dia. Tente outra data.
+              </p>
+            )}
+
+            {!loadingSlots && timeSlots.length > 0 && (
+              <div className="grid grid-cols-3 gap-2">
+                {timeSlots.map((t) => (
+                  <button
+                    key={t.iso}
+                    onClick={() => {
+                      setTime(t.label);
+                      setScheduledAtIso(t.iso);
+                    }}
+                    className={`rounded-xl py-2.5 font-body font-semibold text-[13px] ${
+                      time === t.label ? "bg-[#6B2737] text-white" : "bg-white text-[#2B1A1F]"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -845,7 +1045,11 @@ function BookingScreen({
                   ].map(({ id, label, icon: Icon }) => (
                     <button
                       key={id}
-                      onClick={() => setMethod(id)}
+                      onClick={() => {
+                        setMethod(id);
+                        setPixData(null);
+                        setPaymentError(null);
+                      }}
                       className={`flex-1 flex flex-col items-center gap-1 rounded-xl py-2.5 border-2 ${
                         method === id ? "border-[#6B2737] bg-[#FAF5F1]" : "border-[#EFE3DE]"
                       }`}
@@ -858,6 +1062,43 @@ function BookingScreen({
                   ))}
                 </div>
               </div>
+
+              {(method === "credito" || method === "debito") && (
+                <div className="bg-white rounded-2xl p-3 shadow-sm">
+                  {!cardBrickReady && (
+                    <div className="flex items-center justify-center gap-2 py-6 text-[#8A6F72]">
+                      <Loader2 size={16} className="animate-spin" />
+                      <span className="font-body text-[13px]">Carregando formulário seguro...</span>
+                    </div>
+                  )}
+                  <div id="card-brick-container" />
+                </div>
+              )}
+
+              {method === "pix" && pixData && (
+                <div className="bg-white rounded-2xl p-4 shadow-sm text-center">
+                  {pixData.qr_code_base64 && (
+                    <img
+                      src={`data:image/png;base64,${pixData.qr_code_base64}`}
+                      alt="QR Code Pix"
+                      className="w-48 h-48 mx-auto"
+                    />
+                  )}
+                  <p className="font-body text-[11.5px] text-[#8A6F72] mt-2">
+                    Escaneie o QR Code ou copie o código abaixo no app do seu banco
+                  </p>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(pixData.qr_code)}
+                    className="mt-2 font-body font-semibold text-[12px] text-[#6B2737] underline"
+                  >
+                    Copiar código Pix
+                  </button>
+                </div>
+              )}
+
+              {paymentError && (
+                <p className="font-body text-[12px] text-[#B23A3A] bg-[#FBEAEA] rounded-xl px-3 py-2">{paymentError}</p>
+              )}
             </>
           )}
         </div>
@@ -875,10 +1116,21 @@ function BookingScreen({
             Continuar
           </PrimaryButton>
         )}
-        {step === 2 && (
-          <PrimaryButton onClick={onConfirmed}>
-            {mensalista ? "Confirmar agendamento" : `Confirmar e pagar ${fmt(paymentMode === "sinal" ? sinal : total)}`}
+        {step === 2 && !pixData && method !== "credito" && method !== "debito" && (
+          <PrimaryButton disabled={processing} onClick={handleConfirm}>
+            {processing ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 size={16} className="animate-spin" /> Processando...
+              </span>
+            ) : mensalista ? (
+              "Confirmar agendamento"
+            ) : (
+              `Confirmar e pagar ${fmt(chargeAmount)}`
+            )}
           </PrimaryButton>
+        )}
+        {step === 2 && pixData && (
+          <PrimaryButton onClick={onConfirmed}>Já paguei, continuar</PrimaryButton>
         )}
       </div>
     </div>
@@ -2339,6 +2591,7 @@ export default function AppBelezaPrototype() {
         {screen === "booking" && professional && session && (
           <div className="flex-1 flex flex-col pt-6 overflow-hidden w-full max-w-xl mx-auto sm:border-x sm:border-[#EFE3DE]">
             <BookingScreen
+              salonId={salon?.id}
               professional={professional}
               onBack={() => setScreen("salon")}
               onConfirmed={() => setScreen("confirmed")}
