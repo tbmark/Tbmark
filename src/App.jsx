@@ -1172,6 +1172,7 @@ function OwnerStatusScreen({ salon }) {
       <div className="mt-10 text-left">
         <ServicesManager salonId={salon.id} />
         <EmployeesManager salonId={salon.id} />
+        <BalanceAndWithdrawal salonId={salon.id} />
       </div>
     </div>
   );
@@ -1580,9 +1581,288 @@ function EmployeesManager({ salonId }) {
   );
 }
 
+function BalanceAndWithdrawal({ salonId }) {
+  const [balance, setBalance] = useState(0);
+  const [accounts, setAccounts] = useState([]);
+  const [withdrawals, setWithdrawals] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showPixForm, setShowPixForm] = useState(false);
+  const [pixKey, setPixKey] = useState("");
+  const [pixKeyType, setPixKeyType] = useState("cpf");
+  const [holderName, setHolderName] = useState("");
+  const [showWithdrawForm, setShowWithdrawForm] = useState(false);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
+
+  async function fetchAll() {
+    setLoading(true);
+    const [salonRes, accountsRes, withdrawalsRes] = await Promise.all([
+      supabase.from("salons").select("balance").eq("id", salonId).single(),
+      supabase.from("salon_bank_accounts").select("*").eq("salon_id", salonId).order("created_at", { ascending: false }),
+      supabase.from("withdrawal_requests").select("*").eq("salon_id", salonId).order("created_at", { ascending: false }),
+    ]);
+    setBalance(salonRes.data?.balance || 0);
+    setAccounts(accountsRes.data || []);
+    setWithdrawals(withdrawalsRes.data || []);
+    if (accountsRes.data?.length > 0 && !selectedAccountId) {
+      setSelectedAccountId(accountsRes.data[0].id);
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchAll();
+  }, [salonId]);
+
+  async function handleAddPix(e) {
+    e.preventDefault();
+    setErrorMsg(null);
+    if (!pixKey.trim() || !holderName.trim()) {
+      setErrorMsg("Preencha a chave Pix e o nome do titular.");
+      return;
+    }
+    setSaving(true);
+    const { error } = await supabase.from("salon_bank_accounts").insert({
+      salon_id: salonId,
+      pix_key: pixKey.trim(),
+      pix_key_type: pixKeyType,
+      account_holder_name: holderName.trim(),
+    });
+    setSaving(false);
+    if (error) {
+      setErrorMsg(error.message);
+      return;
+    }
+    setPixKey("");
+    setHolderName("");
+    setShowPixForm(false);
+    fetchAll();
+  }
+
+  async function handleWithdraw(e) {
+    e.preventDefault();
+    setErrorMsg(null);
+    const amountNum = parseFloat(withdrawAmount.replace(",", "."));
+
+    if (!selectedAccountId) {
+      setErrorMsg("Cadastre uma chave Pix primeiro.");
+      return;
+    }
+    if (isNaN(amountNum) || amountNum <= 0) {
+      setErrorMsg("Digite um valor válido.");
+      return;
+    }
+    if (amountNum > balance) {
+      setErrorMsg("Valor maior que o saldo disponível.");
+      return;
+    }
+
+    setSaving(true);
+    const platformFee = amountNum * 0.05;
+    const netAmount = amountNum - platformFee;
+
+    const { error } = await supabase.from("withdrawal_requests").insert({
+      salon_id: salonId,
+      bank_account_id: selectedAccountId,
+      requested_amount: amountNum,
+      platform_fee: platformFee,
+      net_amount: netAmount,
+    });
+
+    setSaving(false);
+    if (error) {
+      setErrorMsg(error.message);
+      return;
+    }
+    setWithdrawAmount("");
+    setShowWithdrawForm(false);
+    fetchAll();
+  }
+
+  const statusLabel = {
+    pending: { text: "Aguardando aprovação", color: "#C9A227" },
+    approved: { text: "Aprovado — aguardando transferência", color: "#5C7A4C" },
+    paid: { text: "Pago", color: "#5C7A4C" },
+    rejected: { text: "Rejeitado", color: "#B23A3A" },
+  };
+
+  return (
+    <div className="mt-10">
+      <h2 className="font-display font-semibold text-[17px] text-[#2B1A1F] mb-3">Financeiro</h2>
+
+      <div className="bg-white rounded-2xl p-5 shadow-sm mb-4">
+        <p className="font-body text-[12px] text-[#8A6F72]">Saldo disponível</p>
+        <p className="font-display font-semibold text-[28px] text-[#2B1A1F] mt-0.5">{fmt(balance)}</p>
+      </div>
+
+      {loading && (
+        <div className="flex items-center gap-2 text-[#8A6F72] py-4">
+          <Loader2 size={16} className="animate-spin" />
+          <span className="font-body text-[13px]">Carregando...</span>
+        </div>
+      )}
+
+      {!loading && (
+        <>
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-body font-bold text-[13px] text-[#2B1A1F]">Chaves Pix cadastradas</p>
+            {!showPixForm && (
+              <button
+                onClick={() => setShowPixForm(true)}
+                className="font-body font-semibold text-[11.5px] text-[#6B2737]"
+              >
+                + Cadastrar chave
+              </button>
+            )}
+          </div>
+
+          {showPixForm && (
+            <form onSubmit={handleAddPix} className="bg-white rounded-2xl p-4 shadow-sm flex flex-col gap-2.5 mb-3">
+              <div className="grid grid-cols-2 gap-2">
+                {["cpf", "cnpj", "email", "telefone", "aleatoria"].map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setPixKeyType(t)}
+                    className={`rounded-xl py-2 font-body font-semibold text-[11.5px] capitalize ${
+                      pixKeyType === t ? "bg-[#6B2737] text-white" : "bg-[#FAF5F1] text-[#8A6F72]"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <input
+                required
+                placeholder="Chave Pix"
+                value={pixKey}
+                onChange={(e) => setPixKey(e.target.value)}
+                className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+              />
+              <input
+                required
+                placeholder="Nome completo do titular (igual ao CPF/CNPJ cadastrado)"
+                value={holderName}
+                onChange={(e) => setHolderName(e.target.value)}
+                className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+              />
+              {errorMsg && (
+                <p className="font-body text-[11.5px] text-[#B23A3A] bg-[#FBEAEA] rounded-lg px-3 py-1.5">{errorMsg}</p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPixForm(false)}
+                  className="flex-1 bg-[#FAF5F1] text-[#8A6F72] rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
+                >
+                  Cancelar
+                </button>
+                <button disabled={saving} className="flex-1 bg-[#6B2737] text-white rounded-xl py-2.5 font-body font-semibold text-[12.5px]">
+                  {saving ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {accounts.length === 0 && !showPixForm && (
+            <p className="font-body text-[12.5px] text-[#8A6F72] mb-4">Nenhuma chave Pix cadastrada ainda.</p>
+          )}
+
+          {accounts.length > 0 && (
+            <div className="flex flex-col gap-2 mb-4">
+              {accounts.map((a) => (
+                <div key={a.id} className="bg-white rounded-2xl p-3.5 shadow-sm">
+                  <p className="font-body font-bold text-[13px] text-[#2B1A1F]">{a.account_holder_name}</p>
+                  <p className="font-body text-[12px] text-[#8A6F72]">{a.pix_key_type.toUpperCase()} · {a.pix_key}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {accounts.length > 0 && !showWithdrawForm && (
+            <button
+              onClick={() => setShowWithdrawForm(true)}
+              disabled={balance <= 0}
+              className="w-full bg-[#6B2737] text-white rounded-2xl py-3 font-body font-semibold text-[13px] disabled:opacity-40 mb-5"
+            >
+              Solicitar saque
+            </button>
+          )}
+
+          {showWithdrawForm && (
+            <form onSubmit={handleWithdraw} className="bg-white rounded-2xl p-4 shadow-sm flex flex-col gap-2.5 mb-5">
+              <select
+                value={selectedAccountId}
+                onChange={(e) => setSelectedAccountId(e.target.value)}
+                className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none"
+              >
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.account_holder_name} — {a.pix_key}
+                  </option>
+                ))}
+              </select>
+              <input
+                required
+                placeholder={`Valor a sacar (máx. ${fmt(balance)})`}
+                inputMode="decimal"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+                className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+              />
+              <p className="font-body text-[11px] text-[#8A6F72]">
+                5% de taxa da plataforma é descontado no momento da aprovação do saque.
+              </p>
+              {errorMsg && (
+                <p className="font-body text-[11.5px] text-[#B23A3A] bg-[#FBEAEA] rounded-lg px-3 py-1.5">{errorMsg}</p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowWithdrawForm(false)}
+                  className="flex-1 bg-[#FAF5F1] text-[#8A6F72] rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
+                >
+                  Cancelar
+                </button>
+                <button disabled={saving} className="flex-1 bg-[#6B2737] text-white rounded-xl py-2.5 font-body font-semibold text-[12.5px]">
+                  {saving ? "Enviando..." : "Confirmar solicitação"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          <p className="font-body font-bold text-[13px] text-[#2B1A1F] mb-2">Histórico de saques</p>
+          {withdrawals.length === 0 && (
+            <p className="font-body text-[12.5px] text-[#8A6F72]">Nenhum saque solicitado ainda.</p>
+          )}
+          <div className="flex flex-col gap-2">
+            {withdrawals.map((w) => {
+              const s = statusLabel[w.status];
+              return (
+                <div key={w.id} className="bg-white rounded-2xl p-3.5 shadow-sm flex items-center justify-between">
+                  <div>
+                    <p className="font-body font-bold text-[13px] text-[#2B1A1F]">{fmt(w.requested_amount)}</p>
+                    <p className="font-body text-[11.5px]" style={{ color: s.color }}>{s.text}</p>
+                  </div>
+                  <p className="font-body text-[11px] text-[#8A6F72]">
+                    Líquido: {fmt(w.net_amount)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function AdminScreen() {
   const [pendingSalons, setPendingSalons] = useState([]);
   const [allSalons, setAllSalons] = useState([]);
+  const [pendingWithdrawals, setPendingWithdrawals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [docUrls, setDocUrls] = useState({});
 
@@ -1595,6 +1875,14 @@ function AdminScreen() {
 
     setAllSalons(all || []);
     setPendingSalons((all || []).filter((s) => s.verification_status === "pending"));
+
+    const { data: withdrawals } = await supabase
+      .from("withdrawal_requests")
+      .select("id, salon_id, requested_amount, platform_fee, net_amount, status, created_at, salons(name), salon_bank_accounts(pix_key, pix_key_type, account_holder_name)")
+      .in("status", ["pending", "approved"])
+      .order("created_at", { ascending: true });
+
+    setPendingWithdrawals(withdrawals || []);
     setLoading(false);
   }
 
@@ -1612,6 +1900,30 @@ function AdminScreen() {
       return data.signedUrl;
     }
     return null;
+  }
+
+  async function approveWithdrawal(w) {
+    if (!window.confirm(`Aprovar saque de ${fmt(w.requested_amount)}? Isso já debita o saldo do salão.`)) return;
+    // Debita o saldo do salão
+    const { data: salonRow } = await supabase.from("salons").select("id, balance").eq("id", w.salon_id).single();
+    if (salonRow) {
+      await supabase.from("salons").update({ balance: (salonRow.balance || 0) - w.requested_amount }).eq("id", salonRow.id);
+    }
+    await supabase.from("withdrawal_requests").update({ status: "approved", reviewed_at: new Date().toISOString() }).eq("id", w.id);
+    fetchData();
+  }
+
+  async function rejectWithdrawal(w) {
+    const reason = window.prompt("Motivo da rejeição:");
+    if (reason === null) return;
+    await supabase.from("withdrawal_requests").update({ status: "rejected", rejection_reason: reason, reviewed_at: new Date().toISOString() }).eq("id", w.id);
+    fetchData();
+  }
+
+  async function markWithdrawalPaid(w) {
+    if (!window.confirm("Confirma que já transferiu esse Pix manualmente?")) return;
+    await supabase.from("withdrawal_requests").update({ status: "paid" }).eq("id", w.id);
+    fetchData();
   }
 
   async function approve(salonId) {
@@ -1653,8 +1965,78 @@ function AdminScreen() {
         <Sparkles size={15} color="#C9A227" className="shrink-0 mt-0.5" />
         <p className="font-body text-[12px] text-[#8A6E1F]">
           Faturamento por salão e da plataforma aparecerão aqui assim que os pagamentos reais estiverem
-          integrados (Pague.me) — próxima etapa do projeto.
+          integrados (Mercado Pago) — próxima etapa do projeto.
         </p>
+      </div>
+
+      <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F] mt-7 mb-3">
+        Saques {pendingWithdrawals.length > 0 && `(${pendingWithdrawals.length})`}
+      </h2>
+
+      {!loading && pendingWithdrawals.length === 0 && (
+        <p className="font-body text-[13px] text-[#8A6F72] mb-2">Nenhum saque pendente no momento.</p>
+      )}
+
+      <div className="flex flex-col gap-3 mb-2">
+        {pendingWithdrawals.map((w) => (
+          <div key={w.id} className="bg-white rounded-2xl p-4 shadow-sm">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="font-body font-bold text-[14px] text-[#2B1A1F]">{w.salons?.name}</p>
+                <p className="font-body text-[12px] text-[#8A6F72] mt-0.5">
+                  Solicitado: {fmt(w.requested_amount)} · Taxa (5%): {fmt(w.platform_fee)} · Líquido: {fmt(w.net_amount)}
+                </p>
+              </div>
+              <span
+                className="font-body font-semibold text-[11px] px-2 py-1 rounded-full shrink-0"
+                style={{
+                  background: w.status === "approved" ? "#EEF3E9" : "#FDF6E3",
+                  color: w.status === "approved" ? "#5C7A4C" : "#C9A227",
+                }}
+              >
+                {w.status === "approved" ? "Aprovado" : "Pendente"}
+              </span>
+            </div>
+
+            <div className="bg-[#FAF5F1] rounded-xl p-3 mt-3">
+              <p className="font-body font-semibold text-[12.5px] text-[#2B1A1F]">
+                {w.salon_bank_accounts?.account_holder_name}
+              </p>
+              <p className="font-body text-[11.5px] text-[#8A6F72]">
+                {w.salon_bank_accounts?.pix_key_type?.toUpperCase()} · {w.salon_bank_accounts?.pix_key}
+              </p>
+              <p className="font-body text-[10.5px] text-[#B49A96] mt-1">
+                Confira se o nome bate com o documento cadastrado do salão antes de aprovar.
+              </p>
+            </div>
+
+            {w.status === "pending" && (
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => approveWithdrawal(w)}
+                  className="flex-1 bg-[#5C7A4C] text-white rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
+                >
+                  Aprovar
+                </button>
+                <button
+                  onClick={() => rejectWithdrawal(w)}
+                  className="flex-1 bg-[#B23A3A] text-white rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
+                >
+                  Rejeitar
+                </button>
+              </div>
+            )}
+
+            {w.status === "approved" && (
+              <button
+                onClick={() => markWithdrawalPaid(w)}
+                className="w-full bg-[#6B2737] text-white rounded-xl py-2.5 font-body font-semibold text-[12.5px] mt-3"
+              >
+                Marcar como transferido (Pix já enviado)
+              </button>
+            )}
+          </div>
+        ))}
       </div>
 
       <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F] mt-7 mb-3">
