@@ -135,7 +135,7 @@ function StepDots({ step }) {
    SCREEN: AUTH (login / cadastro do cliente)
 --------------------------------------------------------- */
 
-function AuthScreen({ onAuthenticated }) {
+function AuthScreen({ userType, onAuthenticated }) {
   const [mode, setMode] = useState("login"); // login | signup | check-email
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -154,7 +154,7 @@ function AuthScreen({ onAuthenticated }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name, phone, birth_date: birthDate } },
+      options: { data: { name, phone, birth_date: birthDate, role: userType || "client" } },
     });
 
     if (error) {
@@ -1448,7 +1448,10 @@ function OwnerStatusScreen({ salon }) {
       </div>
 
       <div className="mt-10 text-left">
-        <ServicesManager salonId={salon.id} />
+        <SalonAgenda salonId={salon.id} />
+        <div className="mt-10">
+          <ServicesManager salonId={salon.id} />
+        </div>
         <EmployeesManager salonId={salon.id} />
         <BalanceAndWithdrawal salonId={salon.id} />
       </div>
@@ -1869,6 +1872,117 @@ function EmployeesManager({ salonId }) {
             </button>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function SalonAgenda({ salonId }) {
+  const [appointments, setAppointments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("upcoming"); // upcoming | past | all
+
+  async function fetchAppointments() {
+    setLoading(true);
+    let query = supabase
+      .from("appointments")
+      .select("id, scheduled_at, status, total_amount, deposit_paid, full_payment, is_subscriber_booking, clients(name, phone), professionals(name), services(name)")
+      .eq("salon_id", salonId)
+      .order("scheduled_at", { ascending: filter !== "past" });
+
+    if (filter === "upcoming") query = query.gte("scheduled_at", new Date().toISOString());
+    if (filter === "past") query = query.lt("scheduled_at", new Date().toISOString());
+
+    const { data } = await query;
+    setAppointments(data || []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    fetchAppointments();
+  }, [salonId, filter]);
+
+  const statusLabel = {
+    confirmed: { text: "Confirmado", color: "#5C7A4C", bg: "#EEF3E9" },
+    completed: { text: "Concluído", color: "#6B2737", bg: "#FAF5F1" },
+    no_show: { text: "Faltou", color: "#B23A3A", bg: "#FBEAEA" },
+    cancelled: { text: "Cancelado", color: "#8A6F72", bg: "#EFE3DE" },
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-display font-semibold text-[17px] text-[#2B1A1F]">Agenda</h2>
+        <div className="flex items-center gap-1 bg-[#FAF5F1] p-1 rounded-full">
+          {[
+            { id: "upcoming", label: "Próximos" },
+            { id: "past", label: "Passados" },
+            { id: "all", label: "Todos" },
+          ].map((f) => (
+            <button
+              key={f.id}
+              onClick={() => setFilter(f.id)}
+              className={`rounded-full px-3 py-1.5 font-body font-semibold text-[11.5px] transition-colors ${
+                filter === f.id ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading && (
+        <div className="flex items-center gap-2 text-[#8A6F72] py-6">
+          <Loader2 size={16} className="animate-spin" />
+          <span className="font-body text-[13px]">Carregando agenda...</span>
+        </div>
+      )}
+
+      {!loading && appointments.length === 0 && (
+        <p className="font-body text-[13px] text-[#8A6F72]">Nenhum agendamento nesse período.</p>
+      )}
+
+      <div className="flex flex-col gap-2.5">
+        {appointments.map((a) => {
+          const dateObj = new Date(a.scheduled_at);
+          const s = statusLabel[a.status] || statusLabel.confirmed;
+          return (
+            <div key={a.id} className="bg-white rounded-2xl p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-body font-bold text-[14px] text-[#2B1A1F] truncate">{a.clients?.name}</p>
+                  {a.clients?.phone && (
+                    <p className="font-body text-[11.5px] text-[#8A6F72]">{a.clients.phone}</p>
+                  )}
+                </div>
+                <span
+                  className="font-body font-semibold text-[10.5px] px-2 py-1 rounded-full shrink-0"
+                  style={{ background: s.bg, color: s.color }}
+                >
+                  {s.text}
+                </span>
+              </div>
+
+              <div className="mt-2.5 pt-2.5 border-t border-[#EFE3DE] flex items-center justify-between">
+                <div>
+                  <p className="font-body text-[12.5px] text-[#2B1A1F] font-semibold">
+                    {dateObj.toLocaleDateString("pt-BR")} às {dateObj.toTimeString().slice(0, 5)}
+                  </p>
+                  <p className="font-body text-[12px] text-[#8A6F72] mt-0.5">
+                    {a.services?.name} · com {a.professionals?.name}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-body font-bold text-[13px] text-[#6B2737]">{fmt(a.total_amount)}</p>
+                  <p className="font-body text-[10.5px] text-[#8A6F72]">
+                    {a.is_subscriber_booking ? "Mensalista" : a.full_payment ? "Pago total" : a.deposit_paid ? "Sinal pago" : "Aguardando sinal"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -3042,7 +3156,7 @@ export default function AppBelezaPrototype() {
         {screen === "auth" && (
           <div className="flex-1 flex flex-col overflow-hidden w-full max-w-xl mx-auto sm:border-x sm:border-[#EFE3DE]">
             <TopHeader title="Entre para continuar" onBack={() => setScreen(userType === "client" ? "salon" : "search")} />
-            <AuthScreen onAuthenticated={() => setScreen(userType === "client" ? "booking" : "search")} />
+            <AuthScreen userType={userType} onAuthenticated={() => setScreen(userType === "client" ? "booking" : "search")} />
           </div>
         )}
 
