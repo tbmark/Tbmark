@@ -158,7 +158,10 @@ function AuthScreen({ onAuthenticated }) {
     });
 
     if (error) {
-      setErrorMsg(error.message === "User already registered" ? "Esse email já está cadastrado." : "Não foi possível cadastrar agora. Tente novamente.");
+      let friendlyMsg = "Não foi possível cadastrar agora. Tente novamente.";
+      if (error.message === "User already registered") friendlyMsg = "Esse email já está cadastrado.";
+      else if (error.message?.includes("não foi liberado")) friendlyMsg = "Esse email ainda não foi liberado pra usar o TBMark. Fale com quem te convidou.";
+      setErrorMsg(friendlyMsg);
       setLoading(false);
       return;
     }
@@ -2154,6 +2157,10 @@ function AdminScreen() {
   const [pendingSalons, setPendingSalons] = useState([]);
   const [allSalons, setAllSalons] = useState([]);
   const [pendingWithdrawals, setPendingWithdrawals] = useState([]);
+  const [allowedEmails, setAllowedEmails] = useState([]);
+  const [newInviteEmail, setNewInviteEmail] = useState("");
+  const [newInviteNote, setNewInviteNote] = useState("");
+  const [savingInvite, setSavingInvite] = useState(false);
   const [clients, setClients] = useState([]);
   const [recentAppointments, setRecentAppointments] = useState([]);
   const [paidWithdrawalsTotal, setPaidWithdrawalsTotal] = useState(0);
@@ -2178,6 +2185,9 @@ function AdminScreen() {
       .order("created_at", { ascending: true });
 
     setPendingWithdrawals(withdrawals || []);
+
+    const { data: invites } = await supabase.from("allowed_emails").select("email, note, created_at").order("created_at", { ascending: false });
+    setAllowedEmails(invites || []);
 
     // Quem se cadastrou
     const { data: clientsData } = await supabase
@@ -2271,6 +2281,29 @@ function AdminScreen() {
     fetchData();
   }
 
+  async function addInvite(e) {
+    e.preventDefault();
+    if (!newInviteEmail.trim()) return;
+    setSavingInvite(true);
+    const { error } = await supabase
+      .from("allowed_emails")
+      .insert({ email: newInviteEmail.trim().toLowerCase(), note: newInviteNote.trim() || null });
+    setSavingInvite(false);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    setNewInviteEmail("");
+    setNewInviteNote("");
+    fetchData();
+  }
+
+  async function removeInvite(email) {
+    if (!window.confirm(`Remover ${email} da lista de convidados?`)) return;
+    await supabase.from("allowed_emails").delete().eq("email", email);
+    fetchData();
+  }
+
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
       <h1 className="font-display font-semibold text-[22px] text-[#2B1A1F]">Painel da plataforma</h1>
@@ -2281,6 +2314,7 @@ function AdminScreen() {
           { id: "overview", label: "Visão geral" },
           { id: "approvals", label: `Aprovações${pendingSalons.length > 0 ? ` (${pendingSalons.length})` : ""}` },
           { id: "withdrawals", label: `Saques${pendingWithdrawals.length > 0 ? ` (${pendingWithdrawals.length})` : ""}` },
+          { id: "invites", label: "Convites" },
         ].map((t) => (
           <button
             key={t.id}
@@ -2473,6 +2507,61 @@ function AdminScreen() {
             )}
           </div>
         ))}
+        </div>
+      )}
+
+      {adminTab === "invites" && (
+        <div className="mt-6">
+          <div className="bg-[#FDF6E3] rounded-2xl p-3.5 flex items-start gap-2 mb-5">
+            <Sparkles size={15} color="#C9A227" className="shrink-0 mt-0.5" />
+            <p className="font-body text-[12px] text-[#8A6E1F]">
+              O TBMark está fechado por convite. Só quem estiver nessa lista consegue criar conta — cliente,
+              dona de salão ou funcionária. Adicione o email antes de indicar o site pra alguém.
+            </p>
+          </div>
+
+          <form onSubmit={addInvite} className="bg-white rounded-2xl p-4 shadow-sm flex flex-col gap-2.5 mb-5">
+            <input
+              required
+              type="email"
+              placeholder="Email a liberar"
+              value={newInviteEmail}
+              onChange={(e) => setNewInviteEmail(e.target.value)}
+              className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+            />
+            <input
+              placeholder="Observação (opcional — ex: 'dona do salão X')"
+              value={newInviteNote}
+              onChange={(e) => setNewInviteNote(e.target.value)}
+              className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
+            />
+            <button
+              disabled={savingInvite}
+              className="bg-[#6B2737] text-white rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
+            >
+              {savingInvite ? "Adicionando..." : "Liberar este email"}
+            </button>
+          </form>
+
+          <p className="font-body font-bold text-[13px] text-[#2B1A1F] mb-2">
+            Emails liberados ({allowedEmails.length})
+          </p>
+          <div className="flex flex-col gap-2">
+            {allowedEmails.map((inv) => (
+              <div key={inv.email} className="bg-white rounded-2xl p-3.5 shadow-sm flex items-center justify-between">
+                <div>
+                  <p className="font-body font-bold text-[13px] text-[#2B1A1F]">{inv.email}</p>
+                  {inv.note && <p className="font-body text-[11.5px] text-[#8A6F72]">{inv.note}</p>}
+                </div>
+                <button
+                  onClick={() => removeInvite(inv.email)}
+                  className="font-body font-semibold text-[11.5px] text-[#B23A3A] shrink-0"
+                >
+                  Remover
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
