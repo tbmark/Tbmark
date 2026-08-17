@@ -2165,7 +2165,7 @@ function AdminScreen() {
     setLoading(true);
     const { data: all } = await supabase
       .from("salons")
-      .select("id, name, address, owner_full_name, document_type, document_number, verification_status, created_at, salon_documents(document_url), salon_photos(photo_url)")
+      .select("id, name, address, owner_full_name, document_type, document_number, verification_status, balance, created_at, salon_documents(document_url), salon_photos(photo_url)")
       .order("created_at", { ascending: false });
 
     setAllSalons(all || []);
@@ -2259,6 +2259,17 @@ function AdminScreen() {
 
   const approvedCount = allSalons.filter((s) => s.verification_status === "approved").length;
   const rejectedCount = allSalons.filter((s) => s.verification_status === "rejected").length;
+  const projectedRevenue = allSalons.reduce((sum, s) => sum + (s.balance || 0), 0) * 0.05;
+
+  async function deleteSalon(s) {
+    if (!window.confirm(`Apagar o salão "${s.name}"? Isso não pode ser desfeito.`)) return;
+    const { error } = await supabase.rpc("admin_delete_salon", { p_salon_id: s.id });
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    fetchData();
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8">
@@ -2304,17 +2315,50 @@ function AdminScreen() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
             <div className="bg-white rounded-2xl p-5 shadow-sm">
               <p className="font-body text-[12px] text-[#8A6F72]">Total já transacionado na plataforma</p>
-              <p className="font-display font-semibold text-[24px] text-[#2B1A1F] mt-0.5">{fmt(totalTransacted)}</p>
+              <p className="font-display font-semibold text-[22px] text-[#2B1A1F] mt-0.5">{fmt(totalTransacted)}</p>
               <p className="font-body text-[11px] text-[#8A6F72] mt-1">Soma de todos os pagamentos confirmados</p>
             </div>
             <div className="bg-white rounded-2xl p-5 shadow-sm">
               <p className="font-body text-[12px] text-[#8A6F72]">Sua receita já realizada</p>
-              <p className="font-display font-semibold text-[24px] text-[#6B2737] mt-0.5">{fmt(paidWithdrawalsTotal)}</p>
-              <p className="font-body text-[11px] text-[#8A6F72] mt-1">Taxa de 5% sobre saques já transferidos</p>
+              <p className="font-display font-semibold text-[22px] text-[#6B2737] mt-0.5">{fmt(paidWithdrawalsTotal)}</p>
+              <p className="font-body text-[11px] text-[#8A6F72] mt-1">Taxa de 5% já transferida e confirmada</p>
             </div>
+            <div className="bg-white rounded-2xl p-5 shadow-sm">
+              <p className="font-body text-[12px] text-[#8A6F72]">Sua receita a caminho</p>
+              <p className="font-display font-semibold text-[22px] text-[#C9A227] mt-0.5">{fmt(projectedRevenue)}</p>
+              <p className="font-body text-[11px] text-[#8A6F72] mt-1">5% do saldo que os salões ainda não sacaram</p>
+            </div>
+          </div>
+
+          <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F] mt-7 mb-3">Todos os salões</h2>
+          {allSalons.length === 0 && <p className="font-body text-[13px] text-[#8A6F72]">Nenhum salão cadastrado ainda.</p>}
+          <div className="flex flex-col gap-2">
+            {allSalons.map((s) => (
+              <div key={s.id} className="bg-white rounded-2xl p-3.5 shadow-sm flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="font-body font-bold text-[13px] text-[#2B1A1F] truncate">{s.name}</p>
+                  <p className="font-body text-[11.5px] text-[#8A6F72] truncate">{s.address}</p>
+                  <span
+                    className="inline-block mt-1 font-body font-semibold text-[10.5px] px-2 py-0.5 rounded-full"
+                    style={{
+                      background: s.verification_status === "approved" ? "#EEF3E9" : s.verification_status === "rejected" ? "#FBEAEA" : "#FDF6E3",
+                      color: s.verification_status === "approved" ? "#5C7A4C" : s.verification_status === "rejected" ? "#B23A3A" : "#C9A227",
+                    }}
+                  >
+                    {s.verification_status === "approved" ? "Aprovado" : s.verification_status === "rejected" ? "Rejeitado" : "Pendente"}
+                  </span>
+                </div>
+                <button
+                  onClick={() => deleteSalon(s)}
+                  className="font-body font-semibold text-[11.5px] text-[#B23A3A] shrink-0"
+                >
+                  Apagar
+                </button>
+              </div>
+            ))}
           </div>
 
           <h2 className="font-display font-semibold text-[16px] text-[#2B1A1F] mt-7 mb-3">Clientes cadastradas</h2>
