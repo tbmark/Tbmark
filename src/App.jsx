@@ -1236,6 +1236,7 @@ function OwnerRegistrationForm({ userId, onSubmitted }) {
   const [photos, setPhotos] = useState([]);
   const [logo, setLogo] = useState([]);
   const [documentFile, setDocumentFile] = useState([]);
+  const [financialPin, setFinancialPin] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
@@ -1249,6 +1250,10 @@ function OwnerRegistrationForm({ userId, onSubmitted }) {
     }
     if (documentFile.length === 0) {
       setErrorMsg("Envie uma foto ou digitalização do documento.");
+      return;
+    }
+    if (!/^\d{4}$/.test(financialPin)) {
+      setErrorMsg("A senha financeira precisa ter exatamente 4 números.");
       return;
     }
 
@@ -1265,6 +1270,7 @@ function OwnerRegistrationForm({ userId, onSubmitted }) {
         document_type: documentType,
         document_number: documentNumber,
         verification_status: "pending",
+        financial_pin: financialPin,
       })
       .select()
       .single();
@@ -1390,6 +1396,26 @@ function OwnerRegistrationForm({ userId, onSubmitted }) {
         onFiles={setPhotos}
       />
 
+      <div>
+        <label className="font-body text-[12px] font-semibold text-[#2B1A1F] block mb-1.5">
+          Crie uma senha de 4 números pra proteger os valores financeiros
+        </label>
+        <input
+          required
+          type="text"
+          inputMode="numeric"
+          maxLength={4}
+          placeholder="0000"
+          value={financialPin}
+          onChange={(e) => setFinancialPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+          className="w-full bg-white rounded-2xl px-4 py-3 font-body text-[16px] tracking-[6px] text-center outline-none shadow-sm placeholder:text-[#B49A96]"
+        />
+        <p className="font-body text-[11px] text-[#8A6F72] mt-1">
+          Você vai usar essa senha pra revelar valores financeiros na sua área — assim, se alguém entrar
+          com seu login, não vê o dinheiro sem essa senha.
+        </p>
+      </div>
+
       {errorMsg && (
         <p className="font-body text-[12px] text-[#B23A3A] bg-[#FBEAEA] rounded-xl px-3 py-2">{errorMsg}</p>
       )}
@@ -1410,6 +1436,23 @@ function OwnerRegistrationForm({ userId, onSubmitted }) {
 }
 
 function OwnerStatusScreen({ salon }) {
+  const [financesUnlocked, setFinancesUnlocked] = useState(false);
+  const [showPinPrompt, setShowPinPrompt] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState(null);
+
+  function handleUnlock(e) {
+    e.preventDefault();
+    if (pinInput === salon.financial_pin) {
+      setFinancesUnlocked(true);
+      setShowPinPrompt(false);
+      setPinInput("");
+      setPinError(null);
+    } else {
+      setPinError("Senha incorreta.");
+    }
+  }
+
   const statusInfo = {
     pending: {
       color: "#C9A227",
@@ -1448,12 +1491,47 @@ function OwnerStatusScreen({ salon }) {
       </div>
 
       <div className="mt-10 text-left">
-        <SalonAgenda salonId={salon.id} />
+        <div className="flex items-center justify-between mb-2">
+          <p className="font-body font-semibold text-[12.5px] text-[#8A6F72]">Valores financeiros</p>
+          <button
+            onClick={() => (financesUnlocked ? setFinancesUnlocked(false) : setShowPinPrompt(true))}
+            className="flex items-center gap-1.5 font-body font-semibold text-[12px] text-[#6B2737]"
+          >
+            {financesUnlocked ? <EyeOff size={15} /> : <Eye size={15} />}
+            {financesUnlocked ? "Esconder valores" : "Ver valores"}
+          </button>
+        </div>
+
+        {showPinPrompt && (
+          <form onSubmit={handleUnlock} className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-2.5 mb-4">
+            <input
+              autoFocus
+              type="text"
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="Senha de 4 números"
+              value={pinInput}
+              onChange={(e) => {
+                setPinInput(e.target.value.replace(/\D/g, "").slice(0, 4));
+                setPinError(null);
+              }}
+              className="flex-1 bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[14px] tracking-[4px] text-center outline-none placeholder:text-[#B49A96] placeholder:tracking-normal"
+            />
+            <button className="bg-[#6B2737] text-white rounded-xl px-4 py-2.5 font-body font-semibold text-[12.5px]">
+              Ver
+            </button>
+          </form>
+        )}
+        {pinError && (
+          <p className="font-body text-[11.5px] text-[#B23A3A] bg-[#FBEAEA] rounded-lg px-3 py-1.5 mb-4">{pinError}</p>
+        )}
+
+        <SalonAgenda salonId={salon.id} financesUnlocked={financesUnlocked} />
         <div className="mt-10">
           <ServicesManager salonId={salon.id} />
         </div>
         <EmployeesManager salonId={salon.id} />
-        <BalanceAndWithdrawal salonId={salon.id} />
+        <BalanceAndWithdrawal salonId={salon.id} financesUnlocked={financesUnlocked} />
       </div>
     </div>
   );
@@ -1877,7 +1955,7 @@ function EmployeesManager({ salonId }) {
   );
 }
 
-function SalonAgenda({ salonId }) {
+function SalonAgenda({ salonId, financesUnlocked }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("upcoming"); // upcoming | past | all
@@ -1974,7 +2052,7 @@ function SalonAgenda({ salonId }) {
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-body font-bold text-[13px] text-[#6B2737]">{fmt(a.total_amount)}</p>
+                  <p className="font-body font-bold text-[13px] text-[#6B2737]">{financesUnlocked ? fmt(a.total_amount) : "R$ ••••"}</p>
                   <p className="font-body text-[10.5px] text-[#8A6F72]">
                     {a.is_subscriber_booking ? "Mensalista" : a.full_payment ? "Pago total" : a.deposit_paid ? "Sinal pago" : "Aguardando sinal"}
                   </p>
@@ -1988,7 +2066,7 @@ function SalonAgenda({ salonId }) {
   );
 }
 
-function BalanceAndWithdrawal({ salonId }) {
+function BalanceAndWithdrawal({ salonId, financesUnlocked }) {
   const [balance, setBalance] = useState(0);
   const [accounts, setAccounts] = useState([]);
   const [withdrawals, setWithdrawals] = useState([]);
@@ -2101,7 +2179,7 @@ function BalanceAndWithdrawal({ salonId }) {
 
       <div className="bg-white rounded-2xl p-5 shadow-sm mb-4">
         <p className="font-body text-[12px] text-[#8A6F72]">Saldo disponível</p>
-        <p className="font-display font-semibold text-[28px] text-[#2B1A1F] mt-0.5">{fmt(balance)}</p>
+        <p className="font-display font-semibold text-[28px] text-[#2B1A1F] mt-0.5">{financesUnlocked ? fmt(balance) : "R$ ••••••"}</p>
       </div>
 
       {loading && (
@@ -2250,11 +2328,11 @@ function BalanceAndWithdrawal({ salonId }) {
               return (
                 <div key={w.id} className="bg-white rounded-2xl p-3.5 shadow-sm flex items-center justify-between">
                   <div>
-                    <p className="font-body font-bold text-[13px] text-[#2B1A1F]">{fmt(w.requested_amount)}</p>
+                    <p className="font-body font-bold text-[13px] text-[#2B1A1F]">{financesUnlocked ? fmt(w.requested_amount) : "R$ ••••"}</p>
                     <p className="font-body text-[11.5px]" style={{ color: s.color }}>{s.text}</p>
                   </div>
                   <p className="font-body text-[11px] text-[#8A6F72]">
-                    Líquido: {fmt(w.net_amount)}
+                    Líquido: {financesUnlocked ? fmt(w.net_amount) : "••••"}
                   </p>
                 </div>
               );
@@ -2273,7 +2351,7 @@ function AdminScreen() {
   const [pendingWithdrawals, setPendingWithdrawals] = useState([]);
   const [allowedEmails, setAllowedEmails] = useState([]);
   const [newInviteEmail, setNewInviteEmail] = useState("");
-  const [newInviteNote, setNewInviteNote] = useState("");
+  const [newInviteType, setNewInviteType] = useState("owner"); // owner | employee
   const [savingInvite, setSavingInvite] = useState(false);
   const [clients, setClients] = useState([]);
   const [recentAppointments, setRecentAppointments] = useState([]);
@@ -2300,7 +2378,7 @@ function AdminScreen() {
 
     setPendingWithdrawals(withdrawals || []);
 
-    const { data: invites } = await supabase.from("allowed_emails").select("email, note, created_at").order("created_at", { ascending: false });
+    const { data: invites } = await supabase.from("allowed_emails").select("email, role, created_at").order("created_at", { ascending: false });
     setAllowedEmails(invites || []);
 
     // Quem se cadastrou
@@ -2401,7 +2479,7 @@ function AdminScreen() {
     setSavingInvite(true);
     const { error } = await supabase
       .from("allowed_emails")
-      .insert({ email: newInviteEmail.trim().toLowerCase(), note: newInviteNote.trim() || null });
+      .insert({ email: newInviteEmail.trim().toLowerCase(), role: newInviteType });
     setSavingInvite(false);
     if (error) {
       alert(error.message);
@@ -2629,8 +2707,8 @@ function AdminScreen() {
           <div className="bg-[#FDF6E3] rounded-2xl p-3.5 flex items-start gap-2 mb-5">
             <Sparkles size={15} color="#C9A227" className="shrink-0 mt-0.5" />
             <p className="font-body text-[12px] text-[#8A6E1F]">
-              O TBMark está fechado por convite. Só quem estiver nessa lista consegue criar conta — cliente,
-              dona de salão ou funcionária. Adicione o email antes de indicar o site pra alguém.
+              Clientes se cadastram livremente. Só donas de salão e funcionárias precisam estar nessa lista
+              pra conseguir criar conta.
             </p>
           </div>
 
@@ -2643,12 +2721,26 @@ function AdminScreen() {
               onChange={(e) => setNewInviteEmail(e.target.value)}
               className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
             />
-            <input
-              placeholder="Observação (opcional — ex: 'dona do salão X')"
-              value={newInviteNote}
-              onChange={(e) => setNewInviteNote(e.target.value)}
-              className="bg-[#FAF5F1] rounded-xl px-3.5 py-2.5 font-body text-[13.5px] outline-none placeholder:text-[#B49A96]"
-            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setNewInviteType("owner")}
+                className={`flex-1 rounded-xl py-2.5 font-body font-semibold text-[12.5px] ${
+                  newInviteType === "owner" ? "bg-[#6B2737] text-white" : "bg-[#FAF5F1] text-[#8A6F72]"
+                }`}
+              >
+                Dona de salão
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewInviteType("employee")}
+                className={`flex-1 rounded-xl py-2.5 font-body font-semibold text-[12.5px] ${
+                  newInviteType === "employee" ? "bg-[#6B2737] text-white" : "bg-[#FAF5F1] text-[#8A6F72]"
+                }`}
+              >
+                Funcionária
+              </button>
+            </div>
             <button
               disabled={savingInvite}
               className="bg-[#6B2737] text-white rounded-xl py-2.5 font-body font-semibold text-[12.5px]"
@@ -2665,7 +2757,17 @@ function AdminScreen() {
               <div key={inv.email} className="bg-white rounded-2xl p-3.5 shadow-sm flex items-center justify-between">
                 <div>
                   <p className="font-body font-bold text-[13px] text-[#2B1A1F]">{inv.email}</p>
-                  {inv.note && <p className="font-body text-[11.5px] text-[#8A6F72]">{inv.note}</p>}
+                  {inv.role && (
+                    <span
+                      className="inline-block mt-1 font-body font-semibold text-[10.5px] px-2 py-0.5 rounded-full"
+                      style={{
+                        background: inv.role === "owner" ? "#FAF5F1" : "#EEF3E9",
+                        color: inv.role === "owner" ? "#6B2737" : "#5C7A4C",
+                      }}
+                    >
+                      {inv.role === "owner" ? "Dona de salão" : "Funcionária"}
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={() => removeInvite(inv.email)}
