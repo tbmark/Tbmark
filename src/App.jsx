@@ -2754,7 +2754,7 @@ export default function AppBelezaPrototype() {
   };
 
   return (
-    <div className="w-full min-h-screen bg-[#FAF5F1]">
+    <div className="w-full min-h-screen bg-[#FAF5F1] overflow-x-hidden">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap');
         .font-display{font-family:'Fraunces',serif;}
@@ -2767,49 +2767,68 @@ export default function AppBelezaPrototype() {
       <div className="w-full min-h-screen flex flex-col relative">
 
         {/* NAVBAR — presente em todas as telas */}
-        <div className="w-full border-b border-[#EFE3DE] bg-white/80 backdrop-blur sticky top-0 z-30">
-          <div className="max-w-5xl mx-auto px-6 py-3.5 flex items-center justify-between gap-4">
-            <span className="font-display font-semibold text-[19px] text-[#6B2737] shrink-0">TBMark</span>
+        <div className="w-full border-b border-[#EFE3DE] bg-white/80 backdrop-blur sticky top-0 z-30 overflow-hidden">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-4">
+            <div className="flex items-center justify-between w-full sm:w-auto">
+              <span className="font-display font-semibold text-[19px] text-[#6B2737] shrink-0">TBMark</span>
 
-            <div className="flex items-center gap-1 bg-[#FAF5F1] p-1 rounded-full shrink-0">
-              <button
-                onClick={() => {
-                  setUserType("client");
-                  setScreen("search");
-                }}
-                className={`rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px] transition-colors ${
-                  userType === "client" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
-                }`}
-              >
-                Para Você
-              </button>
-              <button
-                onClick={() => {
-                  setUserType("owner");
-                  setScreen("search");
-                }}
-                className={`rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px] transition-colors ${
-                  userType === "owner" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
-                }`}
-              >
-                Para Negócios
-              </button>
-              <button
-                onClick={() => {
-                  setUserType("employee");
-                  setScreen("search");
-                }}
-                className={`rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px] transition-colors ${
-                  userType === "employee" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
-                }`}
-              >
-                Para Profissionais
-              </button>
+              <div className="flex items-center gap-3 shrink-0 sm:hidden">
+                {session && displayName && (
+                  <span className="font-body font-semibold text-[12px] text-[#2B1A1F] truncate max-w-[110px]">
+                    {displayName}
+                  </span>
+                )}
+                <button
+                  onClick={() => (session ? supabase.auth.signOut() : setScreen("auth"))}
+                  className="flex items-center gap-1.5 font-body font-semibold text-[12.5px] text-[#6B2737] shrink-0"
+                >
+                  <User size={15} />
+                  {session ? "Sair" : "Entrar"}
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="w-full sm:w-auto overflow-x-auto no-scrollbar">
+              <div className="flex items-center gap-1 bg-[#FAF5F1] p-1 rounded-full w-max sm:w-auto">
+                <button
+                  onClick={() => {
+                    setUserType("client");
+                    setScreen("search");
+                  }}
+                  className={`shrink-0 rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px] whitespace-nowrap transition-colors ${
+                    userType === "client" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
+                  }`}
+                >
+                  Para Você
+                </button>
+                <button
+                  onClick={() => {
+                    setUserType("owner");
+                    setScreen("search");
+                  }}
+                  className={`shrink-0 rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px] whitespace-nowrap transition-colors ${
+                    userType === "owner" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
+                  }`}
+                >
+                  Para Negócios
+                </button>
+                <button
+                  onClick={() => {
+                    setUserType("employee");
+                    setScreen("search");
+                  }}
+                  className={`shrink-0 rounded-full px-3.5 py-1.5 font-body font-semibold text-[12px] whitespace-nowrap transition-colors ${
+                    userType === "employee" ? "bg-[#6B2737] text-white" : "text-[#8A6F72]"
+                  }`}
+                >
+                  Para Profissionais
+                </button>
+              </div>
+            </div>
+
+            <div className="hidden sm:flex items-center gap-3 shrink-0">
               {session && displayName && (
-                <span className="font-body font-semibold text-[12.5px] text-[#2B1A1F] hidden sm:inline truncate max-w-[160px]">
+                <span className="font-body font-semibold text-[12.5px] text-[#2B1A1F] truncate max-w-[160px]">
                   {displayName}
                 </span>
               )}
